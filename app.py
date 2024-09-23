@@ -74,8 +74,22 @@ class Config(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 # Set the config in the FastAPI application
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI()
-app.model_config = Config
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    response = await call_next(request)
+    return response
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
