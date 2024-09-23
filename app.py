@@ -435,7 +435,7 @@ with image_blocks as demo:
     gr.Markdown("Virtual Try-on with your image and garment image. Check out the [source codes](https://github.com/yisol/IDM-VTON) and the [model](https://huggingface.co/yisol/IDM-VTON)")
     with gr.Row():
         with gr.Column():
-            imgs = gr.ImageEditor(sources='upload', type="pil", label='Human. Mask with pen or use auto-masking', interactive=True)
+            imgs = gr.Image(source='upload', type="pil", label='Human. Mask with pen or use auto-masking', tool="editor", interactive=True)
             with gr.Row():
                 is_checked = gr.Checkbox(label="Yes", info="Use auto-generated mask (Takes 5 seconds)",value=False)
             with gr.Row():
@@ -452,7 +452,7 @@ with image_blocks as demo:
             )
 
         with gr.Column():
-            garm_img = gr.Image(label="Garment", sources='upload', type="pil")
+            garm_img = gr.Image(label="Garment", source='upload', type="pil")
             with gr.Row(elem_id="prompt-container"):
                 with gr.Row():
                     prompt = gr.Textbox(placeholder="Description of garment ex) Short Sleeve Round Neck T-shirts", show_label=False, elem_id="prompt")
@@ -467,9 +467,6 @@ with image_blocks as demo:
             # image_out = gr.Image(label="Output", elem_id="output-img", height=400)
             image_out = gr.Image(label="Output", elem_id="output-img",show_share_button=False)
 
-
-
-
     with gr.Column():
         try_button = gr.Button(value="Try-on")
         with gr.Accordion(label="Advanced Settings", open=False):
@@ -477,11 +474,6 @@ with image_blocks as demo:
                 denoise_steps = gr.Number(label="Denoising Steps", minimum=20, maximum=40, value=20, step=1)
                 seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42)
 
-
-
     try_button.click(fn=start_tryon, inputs=[imgs, garm_img, prompt, is_checked,is_checked_crop,use_grounding, has_hat, has_gloves, denoise_steps, seed], outputs=[image_out,masked_img], api_name='tryon')
-
-            
-
 
 image_blocks.launch(share = True)
