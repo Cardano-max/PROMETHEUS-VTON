@@ -68,8 +68,10 @@ from preprocess.openpose.run_openpose import OpenPose
 from detectron2.data.detection_utils import convert_PIL_to_numpy, _apply_exif_orientation
 from torchvision.transforms.functional import to_pil_image
 
+from pydantic import ConfigDict
+
 class Config(BaseModel):
-    arbitrary_types_allowed: ClassVar[bool] = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 # Set the config in the FastAPI application
 app = FastAPI()
