@@ -310,7 +310,14 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
     pipe.to(device)
     pipe.unet_encoder.to(device)
 
+    if garm_img is None:
+        return None, None, "Please upload a garment image."
+
     garm_img = garm_img.convert("RGB").resize((768, 1024))
+    
+    if dict is None or dict.get("background") is None:
+        return None, None, "Please upload a human image."
+
     human_img_orig = dict["background"].convert("RGB")
     print('check 1')
     if is_checked_crop:
@@ -478,7 +485,11 @@ with image_blocks as demo:
             with gr.Row():
                 denoise_steps = gr.Number(label="Denoising Steps", minimum=20, maximum=40, value=20, step=1)
                 seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42)
+        error_output = gr.Textbox(label="Error Messages", visible=True)
 
-    try_button.click(fn=start_tryon, inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed], outputs=[image_out, masked_img], api_name='tryon')
+    try_button.click(fn=start_tryon, 
+                     inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed], 
+                     outputs=[image_out, masked_img, error_output], 
+                     api_name='tryon')
 
 image_blocks.launch(share=True)
