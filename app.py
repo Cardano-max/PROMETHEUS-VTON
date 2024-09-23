@@ -21,7 +21,8 @@ from GroundingDINO.groundingdino.util.inference import annotate, load_image, pre
 import supervision as sv
 
 # segment anything
-from segment_anything.segment_anything import build_sam, SamPredictor 
+from segment_anything.build_sam import build_sam
+from segment_anything.predictor import SamPredictor
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
