@@ -76,6 +76,11 @@ class Config(BaseModel):
 # Set the config in the FastAPI application
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+class Config(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
 
 app = FastAPI()
 app.add_middleware(
