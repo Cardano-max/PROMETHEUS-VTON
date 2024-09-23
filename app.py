@@ -102,11 +102,11 @@ def load_model_hf(repo_id, filename, ckpt_config_filename, device='cpu'):
     cache_config_file = hf_hub_download(repo_id=repo_id, filename=ckpt_config_filename)
 
     args = SLConfig.fromfile(cache_config_file)
-    args.device = device
+    args.device = 'cpu'
     model = build_model(args)
 
     cache_file = hf_hub_download(repo_id=repo_id, filename=filename)
-    checkpoint = torch.load(cache_file, map_location=device)
+    checkpoint = torch.load(cache_file, map_location='cpu')
     log = model.load_state_dict(clean_state_dict(checkpoint['model']), strict=False)
     print("Model loaded from {} \n => {}".format(cache_file, log))
     _ = model.eval()
@@ -117,7 +117,7 @@ ckpt_repo_id = "ShilongLiu/GroundingDINO"
 ckpt_filenmae = "groundingdino_swinb_cogcoor.pth"
 ckpt_config_filename = "GroundingDINO_SwinB.cfg.py"
 
-groundingdino_model = load_model_hf(ckpt_repo_id, ckpt_filenmae, ckpt_config_filename, device)
+groundingdino_model = load_model_hf(ckpt_repo_id, ckpt_filenmae, ckpt_config_filename, 'cpu')
 sam_predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint).to(device))
 
 # detect object using grounding DINO
