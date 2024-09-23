@@ -448,7 +448,7 @@ with image_blocks as demo:
             example = gr.Examples(
                 inputs=imgs,
                 examples_per_page=10,
-                examples=[os.path.join(example_path, "human", ex) for ex in human_ex_list]
+                examples=[ex['background'] for ex in human_ex_list]
             )
 
         with gr.Column():
@@ -459,7 +459,7 @@ with image_blocks as demo:
             example = gr.Examples(
                 inputs=garm_img,
                 examples_per_page=8,
-                examples=[os.path.join(example_path, "cloth", ex) for ex in garm_list_path]
+                examples=garm_list_path
             )
         with gr.Column():
             # image_out = gr.Image(label="Output", elem_id="output-img", height=400)
