@@ -41,6 +41,7 @@ from huggingface_hub import hf_hub_download
 import gradio as gr
 from pydantic import BaseModel
 from typing import ClassVar
+from fastapi import FastAPI
 from PIL import Image
 from src.tryon_pipeline import StableDiffusionXLInpaintPipeline as TryonPipeline
 from src.unet_hacked_garmnet import UNet2DConditionModel as UNet2DConditionModel_ref
