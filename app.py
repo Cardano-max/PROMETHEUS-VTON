@@ -21,7 +21,7 @@ from GroundingDINO.groundingdino.util.inference import annotate, load_image, pre
 import supervision as sv
 
 # segment anything
-from segment_anything import build_sam, SamPredictor
+from segment_anything.segment_anything import build_sam, SamPredictor 
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -64,17 +64,7 @@ from preprocess.openpose.run_openpose import OpenPose
 from detectron2.data.detection_utils import convert_PIL_to_numpy,_apply_exif_orientation
 from torchvision.transforms.functional import to_pil_image
 
-from fastapi import FastAPI
-from pydantic import BaseModel
 
-class Config:
-    arbitrary_types_allowed = True
-
-class CustomBaseModel(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
-
-app = FastAPI()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -290,15 +280,15 @@ def detect_clothing(img, has_hat, has_gloves, human_img):
 
 
 @spaces.GPU
-def start_tryon(input_dict, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
+def start_tryon(dict, garm_img,garment_des,is_checked,is_checked_crop,use_grounding,has_hat, has_gloves, denoise_steps,seed):
     device = "cuda"
     
     openpose_model.preprocessor.body_estimation.model.to(device)
     pipe.to(device)
     pipe.unet_encoder.to(device)
 
-    garm_img = garm_img.convert("RGB").resize((768, 1024))
-    human_img_orig = input_dict["background"].convert("RGB")
+    garm_img= garm_img.convert("RGB").resize((768,1024))
+    human_img_orig = dict["background"].convert("RGB")    
     print('check 1')
     if is_checked_crop:
         width, height = human_img_orig.size
@@ -310,35 +300,38 @@ def start_tryon(input_dict, garm_img, garment_des, is_checked, is_checked_crop, 
         bottom = (height + target_height) / 2
         cropped_img = human_img_orig.crop((left, top, right, bottom))
         crop_size = cropped_img.size
-        human_img = cropped_img.resize((768, 1024))
+        human_img = cropped_img.resize((768,1024))
     else:
-        human_img = human_img_orig.resize((768, 1024))
+        human_img = human_img_orig.resize((768,1024))
     print('check x')
 
     if is_checked:
         print('automasking...')
-        keypoints = openpose_model(human_img.resize((384, 512)))
-        model_parse, _ = parsing_model(human_img.resize((384, 512)))
+        keypoints = openpose_model(human_img.resize((384,512)))
+        model_parse, _ = parsing_model(human_img.resize((384,512)))
         mask, mask_gray = get_mask_location('hd', "upper_body", model_parse, keypoints)
-        mask = mask.resize((768, 1024))
+        mask = mask.resize((768,1024))
     elif use_grounding:
-        mask = detect_clothing(input_dict["background"], has_hat, has_gloves, human_img)
+        mask = detect_clothing(dict["background"], has_hat, has_gloves, human_img)
     else:
-        mask = pil_to_binary_mask(input_dict['layers'][0].convert("RGB").resize((768, 1024)))
+        mask = pil_to_binary_mask(dict['layers'][0].convert("RGB").resize((768, 1024)))
         # mask = transforms.ToTensor()(mask)
         # mask = mask.unsqueeze(0)
-    mask_gray = (1 - transforms.ToTensor()(mask)) * tensor_transfrom(human_img)
-    mask_gray = to_pil_image((mask_gray + 1.0) / 2.0)
+    mask_gray = (1-transforms.ToTensor()(mask)) * tensor_transfrom(human_img)
+    mask_gray = to_pil_image((mask_gray+1.0)/2.0)
 
-    human_img_arg = _apply_exif_orientation(human_img.resize((384, 512)))
+
+    human_img_arg = _apply_exif_orientation(human_img.resize((384,512)))
     human_img_arg = convert_PIL_to_numpy(human_img_arg, format="BGR")
+     
+    
 
     args = apply_net.create_argument_parser().parse_args(('show', './configs/densepose_rcnn_R_50_FPN_s1x.yaml', './ckpt/densepose/model_final_162be9.pkl', 'dp_segm', '-v', '--opts', 'MODEL.DEVICE', 'cuda'))
     # verbosity = getattr(args, "verbosity", None)
-    pose_img = args.func(args, human_img_arg)
-    pose_img = pose_img[:, :, ::-1]
-    pose_img = Image.fromarray(pose_img).resize((768, 1024))
-
+    pose_img = args.func(args,human_img_arg)    
+    pose_img = pose_img[:,:,::-1]    
+    pose_img = Image.fromarray(pose_img).resize((768,1024))
+    
     with torch.no_grad():
         # Extract the images
         with torch.cuda.amp.autocast():
@@ -357,7 +350,7 @@ def start_tryon(input_dict, garm_img, garment_des, is_checked, is_checked_crop, 
                         do_classifier_free_guidance=True,
                         negative_prompt=negative_prompt,
                     )
-
+                                    
                     prompt = "a photo of " + garment_des
                     negative_prompt = "monochrome, lowres, bad anatomy, worst quality, low quality"
                     if not isinstance(prompt, List):
@@ -377,32 +370,33 @@ def start_tryon(input_dict, garm_img, garment_des, is_checked, is_checked_crop, 
                             negative_prompt=negative_prompt,
                         )
 
-                    pose_img = tensor_transfrom(pose_img).unsqueeze(0).to(device, torch.float16)
-                    garm_tensor = tensor_transfrom(garm_img).unsqueeze(0).to(device, torch.float16)
-                    generator = torch.Generator(device).manual_seed(seed) if seed is not None else None
 
+
+                    pose_img =  tensor_transfrom(pose_img).unsqueeze(0).to(device,torch.float16)
+                    garm_tensor =  tensor_transfrom(garm_img).unsqueeze(0).to(device,torch.float16)
+                    generator = torch.Generator(device).manual_seed(seed) if seed is not None else None
                     images = pipe(
-                        prompt_embeds=prompt_embeds.to(device, torch.float16),
-                        negative_prompt_embeds=negative_prompt_embeds.to(device, torch.float16),
-                        pooled_prompt_embeds=pooled_prompt_embeds.to(device, torch.float16),
-                        negative_pooled_prompt_embeds=negative_pooled_prompt_embeds.to(device, torch.float16),
+                        prompt_embeds=prompt_embeds.to(device,torch.float16),
+                        negative_prompt_embeds=negative_prompt_embeds.to(device,torch.float16),
+                        pooled_prompt_embeds=pooled_prompt_embeds.to(device,torch.float16),
+                        negative_pooled_prompt_embeds=negative_pooled_prompt_embeds.to(device,torch.float16),
                         num_inference_steps=denoise_steps,
                         generator=generator,
-                        strength=1.0,
-                        pose_img=pose_img.to(device, torch.float16),
-                        text_embeds_cloth=prompt_embeds_c.to(device, torch.float16),
-                        cloth=garm_tensor.to(device, torch.float16),
+                        strength = 1.0,
+                        pose_img = pose_img.to(device,torch.float16),
+                        text_embeds_cloth=prompt_embeds_c.to(device,torch.float16),
+                        cloth = garm_tensor.to(device,torch.float16),
                         mask_image=mask,
-                        image=human_img,
+                        image=human_img, 
                         height=1024,
                         width=768,
-                        ip_adapter_image=garm_img.resize((768, 1024)),
+                        ip_adapter_image = garm_img.resize((768,1024)),
                         guidance_scale=2.0,
                     )[0]
 
     if is_checked_crop:
-        out_img = images[0].resize(crop_size)
-        human_img_orig.paste(out_img, (int(left), int(top)))
+        out_img = images[0].resize(crop_size)        
+        human_img_orig.paste(out_img, (int(left), int(top)))    
         return human_img_orig, mask_gray
     else:
         return images[0], mask_gray
@@ -431,7 +425,7 @@ with image_blocks as demo:
     gr.Markdown("Virtual Try-on with your image and garment image. Check out the [source codes](https://github.com/yisol/IDM-VTON) and the [model](https://huggingface.co/yisol/IDM-VTON)")
     with gr.Row():
         with gr.Column():
-            imgs = gr.Image(source='upload', type="pil", label='Human. Mask with pen or use auto-masking', tool="editor", interactive=True)
+            imgs = gr.ImageEditor(sources='upload', type="pil", label='Human. Mask with pen or use auto-masking', interactive=True)
             with gr.Row():
                 is_checked = gr.Checkbox(label="Yes", info="Use auto-generated mask (Takes 5 seconds)",value=False)
             with gr.Row():
@@ -444,25 +438,27 @@ with image_blocks as demo:
             example = gr.Examples(
                 inputs=imgs,
                 examples_per_page=10,
-                examples=[ex['background'] for ex in human_ex_list]
+                examples=human_ex_list
             )
 
         with gr.Column():
-            garm_img = gr.Image(label="Garment", source='upload', type="pil")
+            garm_img = gr.Image(label="Garment", sources='upload', type="pil")
             with gr.Row(elem_id="prompt-container"):
                 with gr.Row():
                     prompt = gr.Textbox(placeholder="Description of garment ex) Short Sleeve Round Neck T-shirts", show_label=False, elem_id="prompt")
             example = gr.Examples(
                 inputs=garm_img,
                 examples_per_page=8,
-                examples=garm_list_path
-            )
+                examples=garm_list_path)
         with gr.Column():
             # image_out = gr.Image(label="Output", elem_id="output-img", height=400)
             masked_img = gr.Image(label="Masked image output", elem_id="masked-img",show_share_button=False)
         with gr.Column():
             # image_out = gr.Image(label="Output", elem_id="output-img", height=400)
             image_out = gr.Image(label="Output", elem_id="output-img",show_share_button=False)
+
+
+
 
     with gr.Column():
         try_button = gr.Button(value="Try-on")
@@ -471,6 +467,11 @@ with image_blocks as demo:
                 denoise_steps = gr.Number(label="Denoising Steps", minimum=20, maximum=40, value=20, step=1)
                 seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42)
 
+
+
     try_button.click(fn=start_tryon, inputs=[imgs, garm_img, prompt, is_checked,is_checked_crop,use_grounding, has_hat, has_gloves, denoise_steps, seed], outputs=[image_out,masked_img], api_name='tryon')
+
+            
+
 
 image_blocks.launch(share = True)
