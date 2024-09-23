@@ -64,7 +64,17 @@ from preprocess.openpose.run_openpose import OpenPose
 from detectron2.data.detection_utils import convert_PIL_to_numpy,_apply_exif_orientation
 from torchvision.transforms.functional import to_pil_image
 
+from fastapi import FastAPI
+from pydantic import BaseModel
 
+class Config:
+    arbitrary_types_allowed = True
+
+class CustomBaseModel(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+
+app = FastAPI()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
