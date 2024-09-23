@@ -70,7 +70,9 @@ from torchvision.transforms.functional import to_pil_image
 class Config(BaseModel):
     arbitrary_types_allowed: ClassVar[bool] = True
 
-gr.Blocks.model_config = Config
+# Set the config in the FastAPI application
+app = FastAPI()
+app.model_config = Config
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
