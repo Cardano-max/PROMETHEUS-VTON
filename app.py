@@ -356,13 +356,9 @@ human_list_path = [os.path.join(example_path, "human", human) for human in human
 
 human_ex_list = []
 for ex_human in human_list_path:
-    ex_dict = {}
     try:
-        print(f"Processing image: {ex_human}")  # Add this line
-        ex_dict['background'] = Image.open(ex_human)
-        ex_dict['layers'] = None
-        ex_dict['composite'] = None
-        human_ex_list.append(ex_dict)
+        print(f"Processing image: {ex_human}")
+        human_ex_list.append(ex_human)
     except Exception as e:
         print(f"Error loading image {ex_human}: {e}")
 
