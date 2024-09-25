@@ -9,6 +9,10 @@ import numpy as np
 from PIL import Image
 from torchvision import transforms
 
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ConfigDict
+
 import GroundingDINO.groundingdino.datasets.transforms as T
 from GroundingDINO.groundingdino.models import build_model
 from GroundingDINO.groundingdino.util import box_ops
@@ -45,7 +49,9 @@ from preprocess.openpose.run_openpose import OpenPose
 from detectron2.data.detection_utils import convert_PIL_to_numpy, _apply_exif_orientation
 from torchvision.transforms.functional import to_pil_image
 
-# FastAPI setup
+class Config(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -54,6 +60,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    response = await call_next(request)
+    return response
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
