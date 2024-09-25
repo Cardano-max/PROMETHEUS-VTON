@@ -364,7 +364,7 @@ with image_blocks as demo:
     gr.Markdown("Virtual Try-on with your image and garment image. Check out the [source codes](https://github.com/yisol/IDM-VTON) and the [model](https://huggingface.co/yisol/IDM-VTON)")
     with gr.Row():
         with gr.Column():
-            imgs = gr.ImageEditor(sources='upload', type="pil", label='Human. Mask with pen or use auto-masking', interactive=True)
+            imgs = gr.Image(source='upload', type="pil", label='Human. Mask with pen or use auto-masking', tool='sketch')
             with gr.Row():
                 is_checked = gr.Checkbox(label="Yes", info="Use auto-generated mask (Takes 5 seconds)", value=False)
             with gr.Row():
