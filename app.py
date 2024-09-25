@@ -364,7 +364,7 @@ for ex_human in human_list_path:
         human_ex_list.append(ex_dict)
     except Exception as e:
         print(f"Error loading image {ex_human}: {e}")
-        
+
 image_blocks = gr.Blocks().queue()
 with image_blocks as demo:
     gr.Markdown("## IDM-VTON 👕👔👚")
