@@ -1,48 +1,51 @@
-import os, sys
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
+import os, sys
 sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+import os, sys
+sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
+
+from pyngrok import ngrok, conf
+import gradio as gr
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from pyngrok import ngrok, conf
 import argparse
 import copy
-
 from IPython.display import display
 from PIL import Image, ImageDraw, ImageFont
 from torchvision.ops import box_convert
 import numpy as np
-# Grounding DINO
-
 import GroundingDINO.groundingdino.datasets.transforms as T
 from GroundingDINO.groundingdino.models import build_model
 from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.slconfig import SLConfig
 from GroundingDINO.groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
 from GroundingDINO.groundingdino.util.inference import annotate, load_image, predict
-
 import supervision as sv
-
-# segment anything
 from segment_anything.build_sam import build_sam
 from segment_anything.predictor import SamPredictor
 import cv2
-import numpy as np
 import matplotlib.pyplot as plt
-
-
-# diffusers
 import PIL
 import requests
 import torch
 from io import BytesIO
 from diffusers import StableDiffusionInpaintPipeline
-
-
 from huggingface_hub import hf_hub_download
-
 import gradio as gr
 from pydantic import BaseModel
-from typing import ClassVar
-from fastapi import FastAPI
-from PIL import Image
+from typing import ClassVar, List
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from src.tryon_pipeline import StableDiffusionXLInpaintPipeline as TryonPipeline
 from src.unet_hacked_garmnet import UNet2DConditionModel as UNet2DConditionModel_ref
 from src.unet_hacked_tryon import UNet2DConditionModel
@@ -51,15 +54,10 @@ from transformers import (
     CLIPVisionModelWithProjection,
     CLIPTextModel,
     CLIPTextModelWithProjection,
+    AutoTokenizer
 )
 from diffusers import DDPMScheduler, AutoencoderKL
-from typing import List
-
-import torch
-import os
-from transformers import AutoTokenizer
 import spaces
-import numpy as np
 from utils_mask import get_mask_location
 from torchvision import transforms
 import apply_net
@@ -68,20 +66,15 @@ from preprocess.openpose.run_openpose import OpenPose
 from detectron2.data.detection_utils import convert_PIL_to_numpy, _apply_exif_orientation
 from torchvision.transforms.functional import to_pil_image
 
-from pydantic import ConfigDict
 
-class Config(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-# Set the config in the FastAPI application
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+# Add this near the top of your file
+pyngrok_config = conf.PyngrokConfig(auth_token="2hYgSezMK4wmuLsWDpbwDe0FXaH_6HZ4pTmUiFK5T5ABGYgtD")
 
 class Config(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
+# FastAPI app setup
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -90,6 +83,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -100,15 +94,13 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def load_model_hf(repo_id, filename, ckpt_config_filename, device='cpu'):
     cache_config_file = hf_hub_download(repo_id=repo_id, filename=ckpt_config_filename)
-
     args = SLConfig.fromfile(cache_config_file)
-    args.device = 'cpu'
+    args.device = device
     model = build_model(args)
-
     cache_file = hf_hub_download(repo_id=repo_id, filename=filename)
-    checkpoint = torch.load(cache_file, map_location='cpu')
+    checkpoint = torch.load(cache_file, map_location=device)
     log = model.load_state_dict(clean_state_dict(checkpoint['model']), strict=False)
-    print("Model loaded from {} \n => {}".format(cache_file, log))
+    logger.info(f"Model loaded from {cache_file} \n => {log}")
     _ = model.eval()
     return model
 
@@ -117,10 +109,9 @@ ckpt_repo_id = "ShilongLiu/GroundingDINO"
 ckpt_filenmae = "groundingdino_swinb_cogcoor.pth"
 ckpt_config_filename = "GroundingDINO_SwinB.cfg.py"
 
-groundingdino_model = load_model_hf(ckpt_repo_id, ckpt_filenmae, ckpt_config_filename, 'cpu')
+groundingdino_model = load_model_hf(ckpt_repo_id, ckpt_filenmae, ckpt_config_filename, device)
 sam_predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint).to(device))
 
-# detect object using grounding DINO
 def detect(image, image_source, text_prompt, model, box_threshold=0.3, text_threshold=0.25):
     boxes, logits, phrases = predict(
         model=model,
@@ -129,7 +120,6 @@ def detect(image, image_source, text_prompt, model, box_threshold=0.3, text_thre
         box_threshold=box_threshold,
         text_threshold=text_threshold
     )
-
     annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
     annotated_frame = annotated_frame[..., ::-1]  # BGR to RGB
     return annotated_frame, boxes
@@ -138,7 +128,6 @@ def segment(image, sam_model, boxes):
     sam_model.set_image(image)
     H, W, _ = image.shape
     boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([W, H, W, H])
-
     transformed_boxes = sam_model.transform.apply_boxes_torch(boxes_xyxy.to(device), image.shape[:2])
     masks, _, _ = sam_model.predict_torch(
         point_coords=None,
@@ -155,10 +144,8 @@ def draw_mask(mask, image, random_color=True):
         color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
     h, w = mask.shape[-2:]
     mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-
     annotated_frame_pil = Image.fromarray(image).convert("RGBA")
     mask_image_pil = Image.fromarray((mask_image.cpu().numpy() * 255).astype(np.uint8)).convert("RGBA")
-
     return np.array(Image.alpha_composite(annotated_frame_pil, mask_image_pil))
 
 def pil_to_binary_mask(pil_image, threshold=0):
@@ -166,10 +153,7 @@ def pil_to_binary_mask(pil_image, threshold=0):
     grayscale_image = Image.fromarray(np_image).convert("L")
     binary_mask = np.array(grayscale_image) > threshold
     mask = np.zeros(binary_mask.shape, dtype=np.uint8)
-    for i in range(binary_mask.shape[0]):
-        for j in range(binary_mask.shape[1]):
-            if binary_mask[i, j]:
-                mask[i, j] = 1
+    mask[binary_mask] = 1
     mask = (mask * 255).astype(np.uint8)
     output_mask = Image.fromarray(mask)
     return output_mask
@@ -196,7 +180,6 @@ tokenizer_two = AutoTokenizer.from_pretrained(
     use_fast=False,
 )
 noise_scheduler = DDPMScheduler.from_pretrained(base_path, subfolder="scheduler")
-
 text_encoder_one = CLIPTextModel.from_pretrained(
     base_path,
     subfolder="text_encoder",
@@ -216,8 +199,6 @@ vae = AutoencoderKL.from_pretrained(base_path,
                                     subfolder="vae",
                                     torch_dtype=torch.float16,
 )
-
-# "stabilityai/stable-diffusion-xl-base-1.0",
 UNet_Encoder = UNet2DConditionModel_ref.from_pretrained(
     base_path,
     subfolder="unet_encoder",
@@ -256,7 +237,7 @@ pipe = TryonPipeline.from_pretrained(
 pipe.unet_encoder = UNet_Encoder
 
 def detect_clothing(img, has_hat, has_gloves, human_img):
-    print(type(img))
+    logger.debug(f"Detecting clothing. Image type: {type(img)}")
     transform = T.Compose(
         [
             T.RandomResize([800], max_size=1333),
@@ -267,102 +248,85 @@ def detect_clothing(img, has_hat, has_gloves, human_img):
     image_source = img.convert("RGB").resize((768, 1024))
     image = np.asarray(image_source)
     image_transformed, _ = transform(image_source, None)
-    if has_hat:
-        hat = ', hat'
-    if has_gloves:
-        gloves = ', gloves'
-    if not has_hat:
-        hat = ''
-    if not has_gloves:
-        gloves = ''
+    hat = ', hat' if has_hat else ''
+    gloves = ', gloves' if has_gloves else ''
 
     annotated_frame, detected_boxes = detect(image_transformed, image, text_prompt=f"clothing clothes tops bottoms{hat}{gloves}", model=groundingdino_model)
-
     segmented_frame_masks = segment(image, sam_predictor, boxes=detected_boxes)
-
     mask = segmented_frame_masks[0][0].cpu().numpy()
 
-    count = 1
-    for i in range(len(segmented_frame_masks) + 1):
-        try:
-            mask += segmented_frame_masks[count][0].cpu().numpy()
-            print(f'added {count} total mask(s) to initial')
-            count += 1
+    for i in range(1, len(segmented_frame_masks)):
+        mask += segmented_frame_masks[i][0].cpu().numpy()
+        logger.debug(f'Added {i} total mask(s) to initial')
 
-        except:
-            None
-    print(f'the mask from grounded is {type(mask)}')
+    logger.debug(f'The mask from grounded is {type(mask)}')
     keypoints = openpose_model(human_img.resize((384, 512)))
     model_parse, _ = parsing_model(human_img.resize((384, 512)))
     mask2, mask_gray = get_mask_location('hd', "upper_body", model_parse, keypoints)
     mask2 = mask2.resize((768, 1024))
-    print(f'the mask from og is {type(mask2)}')
+    logger.debug(f'The mask from og is {type(mask2)}')
     image_mask_pil = Image.fromarray(np.asarray(mask2) - mask)
-    # image_mask_pil = Image.fromarray(mask)
-
     return image_mask_pil
 
 @spaces.GPU
 def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
+    logger.debug("Starting tryon process")
     device = "cuda"
 
-    openpose_model.preprocessor.body_estimation.model.to(device)
-    pipe.to(device)
-    pipe.unet_encoder.to(device)
+    try:
+        openpose_model.preprocessor.body_estimation.model.to(device)
+        pipe.to(device)
+        pipe.unet_encoder.to(device)
 
-    if garm_img is None:
-        return None, None, "Please upload a garment image."
+        if garm_img is None:
+            return None, None, "Please upload a garment image."
 
-    garm_img = garm_img.convert("RGB").resize((768, 1024))
-    
-    if dict is None or dict.get("background") is None:
-        return None, None, "Please upload a human image."
+        garm_img = garm_img.convert("RGB").resize((768, 1024))
+        
+        if dict is None or dict.get("background") is None:
+            return None, None, "Please upload a human image."
 
-    human_img_orig = dict["background"].convert("RGB")
-    print('check 1')
-    if is_checked_crop:
-        width, height = human_img_orig.size
-        target_width = int(min(width, height * (3 / 4)))
-        target_height = int(min(height, width * (4 / 3)))
-        left = (width - target_width) / 2
-        top = (height - target_height) / 2
-        right = (width + target_width) / 2
-        bottom = (height + target_height) / 2
-        cropped_img = human_img_orig.crop((left, top, right, bottom))
-        crop_size = cropped_img.size
-        human_img = cropped_img.resize((768, 1024))
-    else:
-        human_img = human_img_orig.resize((768, 1024))
-    print('check x')
+        human_img_orig = dict["background"].convert("RGB")
+        logger.debug('check 1')
+        if is_checked_crop:
+            width, height = human_img_orig.size
+            target_width = int(min(width, height * (3 / 4)))
+            target_height = int(min(height, width * (4 / 3)))
+            left = (width - target_width) / 2
+            top = (height - target_height) / 2
+            right = (width + target_width) / 2
+            bottom = (height + target_height) / 2
+            cropped_img = human_img_orig.crop((left, top, right, bottom))
+            crop_size = cropped_img.size
+            human_img = cropped_img.resize((768, 1024))
+        else:
+            human_img = human_img_orig.resize((768, 1024))
+        logger.debug('check x')
 
-    if is_checked:
-        print('automasking...')
-        keypoints = openpose_model(human_img.resize((384, 512)))
-        model_parse, _ = parsing_model(human_img.resize((384, 512)))
-        mask, mask_gray = get_mask_location('hd', "upper_body", model_parse, keypoints)
-        mask = mask.resize((768, 1024))
-    elif use_grounding:
-        mask = detect_clothing(dict["background"], has_hat, has_gloves, human_img)
-    else:
-        mask = pil_to_binary_mask(dict['layers'][0].convert("RGB").resize((768, 1024)))
-        # mask = transforms.ToTensor()(mask)
-        # mask = mask.unsqueeze(0)
-    mask_gray = (1 - transforms.ToTensor()(mask)) * tensor_transfrom(human_img)
-    mask_gray = to_pil_image((mask_gray + 1.0) / 2.0)
+        if is_checked:
+            logger.debug('automasking...')
+            keypoints = openpose_model(human_img.resize((384, 512)))
+            model_parse, _ = parsing_model(human_img.resize((384, 512)))
+            mask, mask_gray = get_mask_location('hd', "upper_body", model_parse, keypoints)
+            mask = mask.resize((768, 1024))
+        elif use_grounding:
+            mask = detect_clothing(dict["background"], has_hat, has_gloves, human_img)
+        else:
+            mask = pil_to_binary_mask(dict['layers'][0].convert("RGB").resize((768, 1024)))
+        
+        mask_gray = (1 - transforms.ToTensor()(mask)) * tensor_transfrom(human_img)
+        mask_gray = to_pil_image((mask_gray + 1.0) / 2.0)
 
-    human_img_arg = _apply_exif_orientation(human_img.resize((384, 512)))
-    human_img_arg = convert_PIL_to_numpy(human_img_arg, format="BGR")
+        human_img_arg = _apply_exif_orientation(human_img.resize((384, 512)))
+        human_img_arg = convert_PIL_to_numpy(human_img_arg, format="BGR")
 
-    args = apply_net.create_argument_parser().parse_args(('show', './configs/densepose_rcnn_R_50_FPN_s1x.yaml', './ckpt/densepose/model_final_162be9.pkl', 'dp_segm', '-v', '--opts', 'MODEL.DEVICE', 'cuda'))
-    # verbosity = getattr(args, "verbosity", None)
-    pose_img = args.func(args, human_img_arg)
-    pose_img = pose_img[:, :, ::-1]
-    pose_img = Image.fromarray(pose_img).resize((768, 1024))
+        args = apply_net.create_argument_parser().parse_args(('show', './configs/densepose_rcnn_R_50_FPN_s1x.yaml', './ckpt/densepose/model_final_162be9.pkl', 'dp_segm', '-v', '--opts', 'MODEL.DEVICE', 'cuda'))
+        pose_img = args.func(args, human_img_arg)
+        pose_img = pose_img[:, :, ::-1]
+        pose_img = Image.fromarray(pose_img).resize((768, 1024))
 
-    with torch.no_grad():
-        # Extract the images
-        with torch.cuda.amp.autocast():
-            with torch.no_grad():
+        with torch.no_grad():
+            with torch.cuda.amp.autocast():
                 prompt = "model is wearing " + garment_des
                 negative_prompt = "monochrome, lowres, bad anatomy, worst quality, low quality"
                 with torch.inference_mode():
@@ -419,13 +383,17 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
                         guidance_scale=2.0,
                     )[0]
 
-    if is_checked_crop:
-        out_img = images[0].resize(crop_size)
-        human_img_orig.paste(out_img, (int(left), int(top)))
-        return human_img_orig, mask_gray
-    else:
-        return images[0], mask_gray
-    # return images[0], mask_gray
+        logger.debug("Finished tryon process")
+        if is_checked_crop:
+            out_img = images[0].resize(crop_size)
+            human_img_orig.paste(out_img, (int(left), int(top)))
+            return human_img_orig, mask_gray, ""
+        else:
+            return images[0], mask_gray, ""
+
+    except Exception as e:
+        logger.error(f"An error occurred during the tryon process: {str(e)}")
+        return None, None, str(e)
 
 garm_list = os.listdir(os.path.join(example_path, "cloth"))
 garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
@@ -440,8 +408,6 @@ for ex_human in human_list_path:
     ex_dict['layers'] = None
     ex_dict['composite'] = None
     human_ex_list.append(ex_dict)
-
-##default human
 
 image_blocks = gr.Blocks().queue()
 with image_blocks as demo:
@@ -492,4 +458,19 @@ with image_blocks as demo:
                      outputs=[image_out, masked_img, error_output], 
                      api_name='tryon')
 
-image_blocks.launch(share=True)
+app = gr.mount_gradio_app(app, demo, path="/")
+
+# Add a test route
+@app.get("/test")
+async def read_root():
+    return {"message": "Hello, this is a test route!"}
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Start ngrok
+    public_url = ngrok.connect(8081, pyngrok_config=pyngrok_config)
+    print(f"Public URL: {public_url}")
+    
+    # Run the FastAPI app
+    uvicorn.run(app, host="0.0.0.0", port=8081)
