@@ -358,6 +358,7 @@ human_ex_list = []
 for ex_human in human_list_path:
     ex_dict = {}
     try:
+        print(f"Processing image: {ex_human}")  # Add this line
         ex_dict['background'] = Image.open(ex_human)
         ex_dict['layers'] = None
         ex_dict['composite'] = None
