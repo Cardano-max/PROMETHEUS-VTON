@@ -412,9 +412,12 @@ for ex_human in human_list_path:
 
 def safe_start_tryon(*args):
     try:
-        return start_tryon(*args)
+        logger.debug("Starting safe_start_tryon")
+        result = start_tryon(*args)
+        logger.debug("Finished safe_start_tryon successfully")
+        return result
     except Exception as e:
-        logger.exception("Error in start_tryon:")
+        logger.exception("Error in safe_start_tryon:")
         return None, None, str(e)
 
 image_blocks = gr.Blocks().queue()
@@ -462,9 +465,9 @@ with image_blocks as demo:
         error_output = gr.Textbox(label="Error Messages", visible=True)
 
     try_button.click(fn=safe_start_tryon, 
-                     inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed], 
-                     outputs=[image_out, masked_img, error_output], 
-                     api_name='tryon')
+                    inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed], 
+                    outputs=[image_out, masked_img, error_output], 
+                    api_name='tryon')
 
 app = gr.mount_gradio_app(app, demo, path="/")
 
