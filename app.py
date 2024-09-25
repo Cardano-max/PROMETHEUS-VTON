@@ -112,7 +112,16 @@ def pil_to_binary_mask(pil_image, threshold=0):
     return Image.fromarray(mask)
 
 base_path = 'yisol/IDM-VTON'
+# Load example images
 example_path = os.path.join(os.path.dirname(__file__), 'example')
+
+def load_image(path):
+    try:
+        img = Image.open(path).convert("RGB")
+        return img
+    except Exception as e:
+        print(f"Error loading image {path}: {e}")
+        return None
 
 unet = UNet2DConditionModel.from_pretrained(
     base_path,
@@ -333,35 +342,25 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
     else:
         return images[0], mask_gray
 
-# Load example images
 human_list = os.listdir(os.path.join(example_path, "human"))
 human_list_path = [os.path.join(example_path, "human", human) for human in human_list]
 
 human_ex_list = []
 for ex_human in human_list_path:
-    try:
-        img = Image.open(ex_human)
-        ex_dict = {
-            'background': img,
-            'layers': None,
-            'composite': None
-        }
-        human_ex_list.append(ex_dict)
-        print(f"Processing image: {ex_human}")
-    except Exception as e:
-        print(f"Error processing {ex_human}: {e}")
+    img = load_image(ex_human)
+    if img:
+        human_ex_list.append(img)
+        print(f"Processed human image: {ex_human}")
 
 garm_list = os.listdir(os.path.join(example_path, "cloth"))
 garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
 
 garm_ex_list = []
 for garm_path in garm_list_path:
-    try:
-        img = Image.open(garm_path)
+    img = load_image(garm_path)
+    if img:
         garm_ex_list.append(img)
-        print(f"Processing garment: {garm_path}")
-    except Exception as e:
-        print(f"Error processing {garm_path}: {e}")
+        print(f"Processed garment image: {garm_path}")
 
 # Gradio interface
 image_blocks = gr.Blocks().queue()
@@ -380,18 +379,20 @@ with image_blocks as demo:
             with gr.Row():
                 has_hat = gr.Checkbox(label='Look for a hat to mask in the outfit')
                 has_gloves = gr.Checkbox(label='Look for gloves to mask in the outfit')
-            example = gr.Examples(
+            gr.Examples(
                 examples=human_ex_list,
-                inputs=imgs
+                inputs=imgs,
+                label="Human Examples"
             )
 
         with gr.Column():
             garm_img = gr.Image(label="Garment", source='upload', type="pil")
             with gr.Row():
                 prompt = gr.Textbox(placeholder="Description of garment ex) Short Sleeve Round Neck T-shirts", label="Garment Description")
-            example = gr.Examples(
+            gr.Examples(
                 examples=garm_ex_list,
-                inputs=garm_img
+                inputs=garm_img,
+                label="Garment Examples"
             )
         with gr.Column():
             masked_img = gr.Image(label="Masked image output")
