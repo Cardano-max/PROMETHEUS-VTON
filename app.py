@@ -4,18 +4,10 @@ from pathlib import Path
 
 sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 
-
-import os
-from PIL import Image
-
 import torch
 import numpy as np
 from PIL import Image
 from torchvision import transforms
-
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict
 
 import GroundingDINO.groundingdino.datasets.transforms as T
 from GroundingDINO.groundingdino.models import build_model
@@ -53,9 +45,7 @@ from preprocess.openpose.run_openpose import OpenPose
 from detectron2.data.detection_utils import convert_PIL_to_numpy, _apply_exif_orientation
 from torchvision.transforms.functional import to_pil_image
 
-class Config(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
+# FastAPI setup
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -64,11 +54,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    response = await call_next(request)
-    return response
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -339,7 +324,7 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
                     height=1024,
                     width=768,
                     ip_adapter_image=garm_img.resize((768, 1024)),
-                    guidance_scale=2.0,)[0]
+                    guidance_scale=2.0)[0]
 
     if is_checked_crop:
         out_img = images[0].resize(crop_size)
@@ -348,20 +333,37 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
     else:
         return images[0], mask_gray
 
-garm_list = os.listdir(os.path.join(example_path, "cloth"))
-garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
-
+# Load example images
 human_list = os.listdir(os.path.join(example_path, "human"))
 human_list_path = [os.path.join(example_path, "human", human) for human in human_list]
 
 human_ex_list = []
 for ex_human in human_list_path:
     try:
+        img = Image.open(ex_human)
+        ex_dict = {
+            'background': img,
+            'layers': None,
+            'composite': None
+        }
+        human_ex_list.append(ex_dict)
         print(f"Processing image: {ex_human}")
-        human_ex_list.append(ex_human)
     except Exception as e:
-        print(f"Error loading image {ex_human}: {e}")
+        print(f"Error processing {ex_human}: {e}")
 
+garm_list = os.listdir(os.path.join(example_path, "cloth"))
+garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
+
+garm_ex_list = []
+for garm_path in garm_list_path:
+    try:
+        img = Image.open(garm_path)
+        garm_ex_list.append(img)
+        print(f"Processing garment: {garm_path}")
+    except Exception as e:
+        print(f"Error processing {garm_path}: {e}")
+
+# Gradio interface
 image_blocks = gr.Blocks().queue()
 with image_blocks as demo:
     gr.Markdown("## IDM-VTON 👕👔👚")
@@ -385,7 +387,7 @@ with image_blocks as demo:
 
         with gr.Column():
             garm_img = gr.Image(label="Garment", source='upload', type="pil")
-            with gr.Row(elem_id="prompt-container"):
+            with gr.Row():
                 prompt = gr.Textbox(placeholder="Description of garment ex) Short Sleeve Round Neck T-shirts", label="Garment Description")
             example = gr.Examples(
                 examples=garm_ex_list,
