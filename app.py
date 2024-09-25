@@ -5,19 +5,11 @@ logger = logging.getLogger(__name__)
 import os, sys
 sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 
-import logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
-import os, sys
-sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
-
 from pyngrok import ngrok, conf
 import gradio as gr
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from pyngrok import ngrok, conf
 import argparse
 import copy
 from IPython.display import display
@@ -41,11 +33,9 @@ import torch
 from io import BytesIO
 from diffusers import StableDiffusionInpaintPipeline
 from huggingface_hub import hf_hub_download
-import gradio as gr
 from pydantic import BaseModel
 from typing import ClassVar, List
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from src.tryon_pipeline import StableDiffusionXLInpaintPipeline as TryonPipeline
 from src.unet_hacked_garmnet import UNet2DConditionModel as UNet2DConditionModel_ref
 from src.unet_hacked_tryon import UNet2DConditionModel
@@ -66,7 +56,6 @@ from preprocess.openpose.run_openpose import OpenPose
 from detectron2.data.detection_utils import convert_PIL_to_numpy, _apply_exif_orientation
 from torchvision.transforms.functional import to_pil_image
 
-
 # Add this near the top of your file
 pyngrok_config = conf.PyngrokConfig(auth_token="2hYgSezMK4wmuLsWDpbwDe0FXaH_6HZ4pTmUiFK5T5ABGYgtD")
 
@@ -83,7 +72,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -274,21 +262,27 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
     device = "cuda"
 
     try:
+        logger.debug("Moving models to device")
         openpose_model.preprocessor.body_estimation.model.to(device)
         pipe.to(device)
         pipe.unet_encoder.to(device)
 
         if garm_img is None:
+            logger.warning("No garment image provided")
             return None, None, "Please upload a garment image."
 
+        logger.debug("Processing garment image")
         garm_img = garm_img.convert("RGB").resize((768, 1024))
         
         if dict is None or dict.get("background") is None:
+            logger.warning("No human image provided")
             return None, None, "Please upload a human image."
 
+        logger.debug("Processing human image")
         human_img_orig = dict["background"].convert("RGB")
-        logger.debug('check 1')
+        
         if is_checked_crop:
+            logger.debug("Cropping image")
             width, height = human_img_orig.size
             target_width = int(min(width, height * (3 / 4)))
             target_height = int(min(height, width * (4 / 3)))
@@ -301,19 +295,22 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
             human_img = cropped_img.resize((768, 1024))
         else:
             human_img = human_img_orig.resize((768, 1024))
-        logger.debug('check x')
 
+        logger.debug("Generating mask")
         if is_checked:
-            logger.debug('automasking...')
+            logger.debug("Using auto-generated mask")
             keypoints = openpose_model(human_img.resize((384, 512)))
             model_parse, _ = parsing_model(human_img.resize((384, 512)))
             mask, mask_gray = get_mask_location('hd', "upper_body", model_parse, keypoints)
             mask = mask.resize((768, 1024))
         elif use_grounding:
+            logger.debug("Using Grounded Segment Anything for mask")
             mask = detect_clothing(dict["background"], has_hat, has_gloves, human_img)
         else:
+            logger.debug("Using provided mask")
             mask = pil_to_binary_mask(dict['layers'][0].convert("RGB").resize((768, 1024)))
         
+        logger.debug("Processing mask and human image")
         mask_gray = (1 - transforms.ToTensor()(mask)) * tensor_transfrom(human_img)
         mask_gray = to_pil_image((mask_gray + 1.0) / 2.0)
 
@@ -325,6 +322,7 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
         pose_img = pose_img[:, :, ::-1]
         pose_img = Image.fromarray(pose_img).resize((768, 1024))
 
+        logger.debug("Starting inference")
         with torch.no_grad():
             with torch.cuda.amp.autocast():
                 prompt = "model is wearing " + garment_des
@@ -383,16 +381,19 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
                         guidance_scale=2.0,
                     )[0]
 
-        logger.debug("Finished tryon process")
+        logger.debug("Inference complete")
         if is_checked_crop:
+            logger.debug("Post-processing cropped image")
             out_img = images[0].resize(crop_size)
             human_img_orig.paste(out_img, (int(left), int(top)))
             return human_img_orig, mask_gray, ""
         else:
+            logger.debug("Returning processed image")
             return images[0], mask_gray, ""
 
     except Exception as e:
         logger.error(f"An error occurred during the tryon process: {str(e)}")
+        logger.exception("Full traceback:")
         return None, None, str(e)
 
 garm_list = os.listdir(os.path.join(example_path, "cloth"))
@@ -408,6 +409,13 @@ for ex_human in human_list_path:
     ex_dict['layers'] = None
     ex_dict['composite'] = None
     human_ex_list.append(ex_dict)
+
+def safe_start_tryon(*args):
+    try:
+        return start_tryon(*args)
+    except Exception as e:
+        logger.exception("Error in start_tryon:")
+        return None, None, str(e)
 
 image_blocks = gr.Blocks().queue()
 with image_blocks as demo:
@@ -453,7 +461,7 @@ with image_blocks as demo:
                 seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42)
         error_output = gr.Textbox(label="Error Messages", visible=True)
 
-    try_button.click(fn=start_tryon, 
+    try_button.click(fn=safe_start_tryon, 
                      inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed], 
                      outputs=[image_out, masked_img, error_output], 
                      api_name='tryon')
