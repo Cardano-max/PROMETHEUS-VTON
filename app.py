@@ -4,6 +4,10 @@ from pathlib import Path
 
 sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 
+
+import os
+from PIL import Image
+
 import torch
 import numpy as np
 from PIL import Image
@@ -353,11 +357,14 @@ human_list_path = [os.path.join(example_path, "human", human) for human in human
 human_ex_list = []
 for ex_human in human_list_path:
     ex_dict = {}
-    ex_dict['background'] = ex_human
-    ex_dict['layers'] = None
-    ex_dict['composite'] = None
-    human_ex_list.append(ex_dict)
-
+    try:
+        ex_dict['background'] = Image.open(ex_human)
+        ex_dict['layers'] = None
+        ex_dict['composite'] = None
+        human_ex_list.append(ex_dict)
+    except Exception as e:
+        print(f"Error loading image {ex_human}: {e}")
+        
 image_blocks = gr.Blocks().queue()
 with image_blocks as demo:
     gr.Markdown("## IDM-VTON 👕👔👚")
@@ -366,47 +373,43 @@ with image_blocks as demo:
         with gr.Column():
             imgs = gr.Image(source='upload', type="pil", label='Human. Mask with pen or use auto-masking', tool='sketch')
             with gr.Row():
-                is_checked = gr.Checkbox(label="Yes", info="Use auto-generated mask (Takes 5 seconds)", value=False)
+                is_checked = gr.Checkbox(label="Use auto-generated mask (Takes 5 seconds)")
             with gr.Row():
-                is_checked_crop = gr.Checkbox(label="Yes", info="Use auto-crop & resizing", value=False)
+                is_checked_crop = gr.Checkbox(label="Use auto-crop & resizing")
             with gr.Row():
-                use_grounding = gr.Checkbox(label='Yes', info='Use Grounded Segment Anything to generate mask (better than auto-masking)', value=True)
+                use_grounding = gr.Checkbox(label='Use Grounded Segment Anything to generate mask (better than auto-masking)', value=True)
             with gr.Row():
-                has_hat = gr.Checkbox(label='Yes', info='Look for a hat to mask in the outfit', value=False)
-                has_gloves = gr.Checkbox(label='Yes', info='Look for gloves to mask in the outfit', value=False)
+                has_hat = gr.Checkbox(label='Look for a hat to mask in the outfit')
+                has_gloves = gr.Checkbox(label='Look for gloves to mask in the outfit')
             example = gr.Examples(
-                inputs=imgs,
                 examples=human_ex_list,
-                examples_per_page=10
+                inputs=imgs
             )
 
         with gr.Column():
-            garm_img = gr.Image(label="Garment", sources='upload', type="pil")
+            garm_img = gr.Image(label="Garment", source='upload', type="pil")
             with gr.Row(elem_id="prompt-container"):
-                with gr.Row():
-                    prompt = gr.Textbox(placeholder="Description of garment ex) Short Sleeve Round Neck T-shirts", show_label=False, elem_id="prompt")
+                prompt = gr.Textbox(placeholder="Description of garment ex) Short Sleeve Round Neck T-shirts", label="Garment Description")
             example = gr.Examples(
-                inputs=garm_img,
-                examples=garm_list_path,
-                examples_per_page=8
+                examples=garm_ex_list,
+                inputs=garm_img
             )
         with gr.Column():
-            masked_img = gr.Image(label="Masked image output", elem_id="masked-img", show_share_button=False)
+            masked_img = gr.Image(label="Masked image output")
         with gr.Column():
-            image_out = gr.Image(label="Output", elem_id="output-img", show_share_button=False)
+            image_out = gr.Image(label="Output")
 
     with gr.Column():
-        try_button = gr.Button(value="Try-on")
-        with gr.Accordion(label="Advanced Settings", open=False):
+        try_button = gr.Button("Try-on")
+        with gr.Accordion("Advanced Settings", open=False):
             with gr.Row():
-                denoise_steps = gr.Number(label="Denoising Steps", minimum=20, maximum=40, value=20, step=1)
-                seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42)
-        error_output = gr.Textbox(label="Error Messages", visible=True)
+                denoise_steps = gr.Slider(minimum=20, maximum=40, value=20, step=1, label="Denoising Steps")
+                seed = gr.Number(label="Seed", value=42)
+        error_output = gr.Textbox(label="Error Messages")
 
     try_button.click(fn=start_tryon, 
                      inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed], 
-                     outputs=[image_out, masked_img, error_output], 
-                     api_name='tryon')
+                     outputs=[image_out, masked_img, error_output])
 
 if __name__ == "__main__":
     image_blocks.launch(share=True)
