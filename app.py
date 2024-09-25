@@ -112,8 +112,18 @@ def pil_to_binary_mask(pil_image, threshold=0):
     return Image.fromarray(mask)
 
 base_path = 'yisol/IDM-VTON'
+
+
 # Load example images
 example_path = os.path.join(os.path.dirname(__file__), 'example')
+
+human_list = os.listdir(os.path.join(example_path, "human"))
+human_list_path = [os.path.join(example_path, "human", human) for human in human_list]
+
+garm_list = os.listdir(os.path.join(example_path, "cloth"))
+garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
+
+
 
 def load_image(path):
     try:
@@ -380,7 +390,7 @@ with image_blocks as demo:
                 has_hat = gr.Checkbox(label='Look for a hat to mask in the outfit')
                 has_gloves = gr.Checkbox(label='Look for gloves to mask in the outfit')
             gr.Examples(
-                examples=human_ex_list,
+                examples=human_list_path,
                 inputs=imgs,
                 label="Human Examples"
             )
@@ -390,7 +400,7 @@ with image_blocks as demo:
             with gr.Row():
                 prompt = gr.Textbox(placeholder="Description of garment ex) Short Sleeve Round Neck T-shirts", label="Garment Description")
             gr.Examples(
-                examples=garm_ex_list,
+                examples=garm_list_path,
                 inputs=garm_img,
                 label="Garment Examples"
             )
