@@ -71,9 +71,8 @@ from torchvision.transforms.functional import to_pil_image
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-import gradio as gr
 
-gr.types.pydantic_to_pythonic = lambda x: x
+
 
 def load_model_hf(repo_id, filename, ckpt_config_filename, device='cpu'):
     cache_config_file = hf_hub_download(repo_id=repo_id, filename=ckpt_config_filename)
@@ -425,7 +424,22 @@ for ex_human in human_list_path:
 
 ##default human
 
+import gradio as gr
+from gradio import *  # This is to ensure we have access to all Gradio components
 
+# Monkey patch Gradio's component creation to bypass Pydantic validation
+def patch_component(component):
+    original_init = component.__init__
+    def patched_init(self, *args, **kwargs):
+        kwargs.pop('pydantic_type', None)
+        original_init(self, *args, **kwargs)
+    component.__init__ = patched_init
+
+# Apply the patch to all Gradio components
+for name in dir(gr):
+    item = getattr(gr, name)
+    if isinstance(item, type) and issubclass(item, gr.Component):
+        patch_component(item)
 
 
 image_blocks = gr.Blocks().queue()
