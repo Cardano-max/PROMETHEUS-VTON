@@ -1012,7 +1012,7 @@ class StableDiffusionXLInpaintPipeline(
             )
         else:
             add_time_ids = list(original_size + crops_coords_top_left + target_size)
-            add_neg_time_ids = list(negative_original_size + crops_coords_top_left + negative_target_size)
+            add_neg_time_ids = list(negative_original_size + negative_crops_coords_top_left + negative_target_size)
 
         passed_add_embed_dim = (
             self.unet.config.addition_time_embed_dim * len(add_time_ids) + text_encoder_projection_dim
@@ -1534,7 +1534,7 @@ class StableDiffusionXLInpaintPipeline(
             num_inference_steps,
             strength,
             device,
-            denoising_start=self.denoising_start if denoising_value_valid else None,
+            denoising_start=denoising_start if denoising_value_valid else None,
         )
         # check that number of inference steps is not < 1 - as this doesn't make sense
         if num_inference_steps < 1:
