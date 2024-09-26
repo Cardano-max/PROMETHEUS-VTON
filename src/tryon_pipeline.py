@@ -981,9 +981,13 @@ class StableDiffusionXLInpaintPipeline(
         return mask, masked_image_latents
 
     # Copied from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2img.StableDiffusionXLImg2ImgPipeline.get_timesteps
-    def get_timesteps(self, num_inference_steps: int, strength: float):
+    def get_timesteps(self, num_inference_steps: int, strength: float, denoising_start: Optional[float] = None):
         # Ensure t_start is an integer
-        t_start = max(int(num_inference_steps - num_inference_steps * strength), 0)
+        if denoising_start is not None:
+            t_start = int(num_inference_steps * (1 - denoising_start))
+        else:
+            t_start = max(int(num_inference_steps - num_inference_steps * strength), 0)
+        
         timesteps = self.scheduler.timesteps[t_start * self.scheduler.order :]
         return timesteps, num_inference_steps - t_start
 
