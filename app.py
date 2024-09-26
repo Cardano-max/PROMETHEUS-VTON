@@ -26,6 +26,9 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
+from fastapi import FastAPI
+from pydantic import BaseModel, Field
+
 
 # diffusers
 import PIL
@@ -417,6 +420,18 @@ for ex_human in human_list_path:
     human_ex_list.append(ex_dict)
 
 ##default human
+
+app = FastAPI()
+
+class Config:
+    arbitrary_types_allowed = True
+
+class CustomBaseModel(BaseModel):
+    class Config(Config):
+        pass
+
+# This is to ensure Gradio uses our custom configuration
+gr.routes.templates.TemplateResponse.model_config = Config
 
 
 image_blocks = gr.Blocks().queue()
