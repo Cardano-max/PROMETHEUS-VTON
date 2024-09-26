@@ -169,7 +169,7 @@ def segment(image, sam_model, boxes):
     )
     return masks.cpu()
 
-def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
+def start_tryon(human_img, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
     logger.info("Starting try-on process...")
     device = "cuda"
     
@@ -178,7 +178,7 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
     pipe.unet_encoder.to(device)
 
     garm_img = garm_img.convert("RGB").resize((768,1024))
-    human_img_orig = dict["background"].convert("RGB")    
+    human_img_orig = human_img.convert("RGB")    
     
     if is_checked_crop:
         width, height = human_img_orig.size
@@ -201,9 +201,9 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
         mask, mask_gray = get_mask_location('hd', "upper_body", model_parse, keypoints)
         mask = mask.resize((768,1024))
     elif use_grounding:
-        mask = detect_clothing(dict["background"], has_hat, has_gloves, human_img)
+        mask = detect_clothing(human_img, has_hat, has_gloves, human_img)
     else:
-        mask = Image.fromarray(np.array(dict['layers'][0].convert("RGB").resize((768, 1024))) > 0)
+        mask = Image.fromarray(np.array(human_img.convert("L").resize((768, 1024))) > 128)
 
     mask_gray = (1-transforms.ToTensor()(mask)) * transforms.Normalize([0.5], [0.5])(transforms.ToTensor()(human_img))
     mask_gray = transforms.ToPILImage()((mask_gray+1.0)/2.0)
@@ -215,7 +215,7 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
     pose_img = args.func(args,human_img_arg)    
     pose_img = pose_img[:,:,::-1]    
     pose_img = Image.fromarray(pose_img).resize((768,1024))
-    
+        
     with torch.no_grad():
         with torch.cuda.amp.autocast():
             prompt = "model is wearing " + garment_des
@@ -322,7 +322,22 @@ with image_blocks as demo:
             seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42)
 
     logger.info("Setting up try-on function...")
-    try_button.click(fn=start_tryon, inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed], outputs=[image_out, masked_img], api_name='tryon')
-
+    try_button.click(
+        fn=start_tryon, 
+        inputs=[
+            imgs,  # This is now directly the human image
+            garm_img, 
+            prompt, 
+            is_checked,
+            is_checked_crop,
+            use_grounding, 
+            has_hat, 
+            has_gloves, 
+            denoise_steps, 
+            seed
+        ], 
+        outputs=[image_out, masked_img], 
+        api_name='tryon'
+    )
 logger.info("Launching Gradio interface...")
 image_blocks.launch(share=True)
