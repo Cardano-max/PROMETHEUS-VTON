@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 logger.info("Adding GroundingDINO to system path...")
 sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 
+# Add these imports at the top of the file
+import torch
+from PIL import Image
+import numpy as np
+from torchvision import transforms
+
 # Import necessary modules
 logger.info("Importing modules...")
 import GroundingDINO.groundingdino.datasets.transforms as T
@@ -172,7 +178,7 @@ def segment(image, sam_model, boxes):
     )
     return masks.cpu()
 
-def start_tryon(human_img_dict, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
+def start_tryon(human_img, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
     logger.info("Starting try-on process...")
     device = "cuda"
     
@@ -180,20 +186,9 @@ def start_tryon(human_img_dict, garm_img, garment_des, is_checked, is_checked_cr
     pipe.to(device)
     pipe.unet_encoder.to(device)
 
-        # Convert seed to integer
-    seed = int(seed) if seed is not None else None
-    generator = torch.Generator(device).manual_seed(seed) if seed is not None else None
-
-
     garm_img = garm_img.convert("RGB").resize((768,1024))
+    human_img_orig = human_img.convert("RGB")
     
-    # Check if human_img_dict is a dictionary and extract the image
-    if isinstance(human_img_dict, dict) and 'image' in human_img_dict:
-        human_img_orig = human_img_dict['image'].convert("RGB")
-    else:
-        logger.error("Invalid input format for human image")
-        return None, None
-
     if is_checked_crop:
         width, height = human_img_orig.size
         target_width = int(min(width, height * (3 / 4)))
@@ -216,8 +211,6 @@ def start_tryon(human_img_dict, garm_img, garment_des, is_checked, is_checked_cr
         mask = mask.resize((768,1024))
     elif use_grounding:
         mask = detect_clothing(human_img, has_hat, has_gloves, human_img)
-    elif isinstance(human_img_dict, dict) and 'mask' in human_img_dict:
-        mask = human_img_dict['mask'].convert("L").resize((768, 1024))
     else:
         mask = Image.fromarray(np.array(human_img.convert("L").resize((768, 1024))) > 128)
 
@@ -231,58 +224,20 @@ def start_tryon(human_img_dict, garm_img, garment_des, is_checked, is_checked_cr
     pose_img = args.func(args,human_img_arg)    
     pose_img = pose_img[:,:,::-1]    
     pose_img = Image.fromarray(pose_img).resize((768,1024))
-        
+    
     with torch.no_grad():
-        with torch.cuda.amp.autocast():
-            prompt = "model is wearing " + garment_des
-            negative_prompt = "monochrome, lowres, bad anatomy, worst quality, low quality"
-            (
-                prompt_embeds,
-                negative_prompt_embeds,
-                pooled_prompt_embeds,
-                negative_pooled_prompt_embeds,
-            ) = pipe.encode_prompt(
-                prompt,
-                num_images_per_prompt=1,
-                do_classifier_free_guidance=True,
-                negative_prompt=negative_prompt,
-            )
-                            
-            prompt = "a photo of " + garment_des
-            negative_prompt = "monochrome, lowres, bad anatomy, worst quality, low quality"
-            (
-                prompt_embeds_c,
-                _,
-                _,
-                _,
-            ) = pipe.encode_prompt(
-                prompt,
-                num_images_per_prompt=1,
-                do_classifier_free_guidance=False,
-                negative_prompt=negative_prompt,
-            )
-
-            pose_img =  transforms.Normalize([0.5], [0.5])(transforms.ToTensor()(pose_img)).unsqueeze(0).to(device,torch.float16)
-            garm_tensor =  transforms.Normalize([0.5], [0.5])(transforms.ToTensor()(garm_img)).unsqueeze(0).to(device,torch.float16)
-            generator = torch.Generator(device).manual_seed(seed) if seed is not None else None
-            images = pipe(
-                prompt_embeds=prompt_embeds.to(device,torch.float16),
-                negative_prompt_embeds=negative_prompt_embeds.to(device,torch.float16),
-                pooled_prompt_embeds=pooled_prompt_embeds.to(device,torch.float16),
-                negative_pooled_prompt_embeds=negative_pooled_prompt_embeds.to(device,torch.float16),
-                num_inference_steps=denoise_steps,
-                generator=generator,
-                strength = 1.0,
-                pose_img = pose_img,
-                text_embeds_cloth=prompt_embeds_c.to(device,torch.float16),
-                cloth = garm_tensor,
-                mask_image=mask,
-                image=human_img, 
-                height=1024,
-                width=768,
-                ip_adapter_image = garm_img.resize((768,1024)),
-                guidance_scale=2.0,
-            )[0]
+        images = pipe(
+            prompt=f"model is wearing {garment_des}",
+            image=human_img,
+            mask_image=mask,
+            num_inference_steps=int(denoise_steps),
+            generator=torch.manual_seed(int(seed)) if seed is not None else None,
+            strength=1.0,
+            guidance_scale=7.5,
+            pose_img=pose_img,
+            cloth=garm_img,
+            negative_prompt="monochrome, lowres, bad anatomy, worst quality, low quality",
+        ).images
 
     if is_checked_crop:
         out_img = images[0].resize(crop_size)        
@@ -291,11 +246,7 @@ def start_tryon(human_img_dict, garm_img, garment_des, is_checked, is_checked_cr
     else:
         return images[0], mask_gray
 
-# Set up Gradio interface
-logger.info("Setting up Gradio interface...")
-gr.component._pydantic_to_pythonic = lambda x: x
-
-image_blocks = gr.Blocks().queue()
+# Update the Gradio interface setup
 with image_blocks as demo:
     gr.Markdown("## IDM-VTON 👕👔👚")
     gr.Markdown("Virtual Try-on with your image and garment image. Check out the [source codes](https://github.com/yisol/IDM-VTON) and the [model](https://huggingface.co/yisol/IDM-VTON)")
@@ -306,53 +257,44 @@ with image_blocks as demo:
             imgs = gr.Image(source='upload', type="pil", label='Human. Upload image for auto-masking', tool='sketch')
             
             logger.info("Creating checkbox components...")
-            is_checked = gr.Checkbox(label="Yes", info="Use auto-generated mask (Takes 5 seconds)", value=False)
-            is_checked_crop = gr.Checkbox(label="Yes", info="Use auto-crop & resizing", value=False)
-            use_grounding = gr.Checkbox(label='Yes', info='Use Grounded Segment Anything to generate mask (better than auto-masking)', value=True)
-            has_hat = gr.Checkbox(label='Yes', info='Look for a hat to mask in the outfit', value=False)
-            has_gloves = gr.Checkbox(label='Yes', info='Look for gloves to mask in the outfit', value=False)
+            is_checked = gr.Checkbox(label="Use auto-generated mask", info="Takes 5 seconds", value=False)
+            is_checked_crop = gr.Checkbox(label="Use auto-crop & resizing", value=False)
+            use_grounding = gr.Checkbox(label='Use Grounded Segment Anything', info='Generate mask (better than auto-masking)', value=True)
+            has_hat = gr.Checkbox(label='Look for a hat', info='To mask in the outfit', value=False)
+            has_gloves = gr.Checkbox(label='Look for gloves', info='To mask in the outfit', value=False)
             
             logger.info("Setting up image examples...")
             example = gr.Examples(inputs=imgs, examples=human_ex_list, examples_per_page=10)
 
         with gr.Column():
             logger.info("Creating garment image input...")
-            garm_img = gr.Image(label="Garment", sources='upload', type="pil")
+            garm_img = gr.Image(label="Garment", type="pil")
             
             logger.info("Creating prompt input...")
-            prompt = gr.Textbox(placeholder="Description of garment ex) Short Sleeve Round Neck T-shirts", show_label=False, elem_id="prompt")
+            prompt = gr.Textbox(label="Garment Description", placeholder="e.g., Short Sleeve Round Neck T-shirts", elem_id="prompt")
             
             logger.info("Setting up garment examples...")
-            example = gr.Examples(inputs=garm_img, examples_per_page=8, examples=garm_list_path)
+            example = gr.Examples(inputs=garm_img, examples=garm_list_path, examples_per_page=8)
 
         with gr.Column():
             logger.info("Creating output image components...")
             masked_img = gr.Image(label="Masked image output", elem_id="masked-img", show_share_button=False)
             image_out = gr.Image(label="Output", elem_id="output-img", show_share_button=False)
 
-    with gr.Column():
+    with gr.Row():
         logger.info("Creating try-on button and advanced settings...")
         try_button = gr.Button(value="Try-on")
         with gr.Accordion(label="Advanced Settings", open=False):
-            denoise_steps = gr.Number(label="Denoising Steps", minimum=20, maximum=40, value=20, step=1)
-            seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42, precision=0)  # precision=0 ensures integer
+            denoise_steps = gr.Slider(label="Denoising Steps", minimum=20, maximum=40, value=30, step=1)
+            seed = gr.Slider(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42, randomize=True)
+
     logger.info("Setting up try-on function...")
     try_button.click(
         fn=start_tryon, 
-        inputs=[
-            imgs,  # This is now directly the human image
-            garm_img, 
-            prompt, 
-            is_checked,
-            is_checked_crop,
-            use_grounding, 
-            has_hat, 
-            has_gloves, 
-            denoise_steps, 
-            seed
-        ], 
-        outputs=[image_out, masked_img], 
+        inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed],
+        outputs=[image_out, masked_img],
         api_name='tryon'
     )
+
 logger.info("Launching Gradio interface...")
 image_blocks.launch(share=True)

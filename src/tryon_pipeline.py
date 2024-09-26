@@ -14,6 +14,8 @@
 
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from diffusers.models.attention_processor import AttnProcessor2_0, FusedAttnProcessor2_0, XFormersAttnProcessor, LoRAXFormersAttnProcessor, LoRAAttnProcessor2_0
+
 
 import numpy as np
 import PIL.Image
@@ -1248,6 +1250,8 @@ class StableDiffusionXLInpaintPipeline(
 
     @torch.no_grad()
     @replace_example_docstring(EXAMPLE_DOC_STRING)
+
+    @torch.no_grad()
     def __call__(
         self,
         prompt: Union[str, List[str]] = None,
@@ -1257,12 +1261,8 @@ class StableDiffusionXLInpaintPipeline(
         masked_image_latents: torch.FloatTensor = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
-        padding_mask_crop: Optional[int] = None,
         strength: float = 0.9999,
         num_inference_steps: int = 50,
-        timesteps: List[int] = None,
-        denoising_start: Optional[float] = None,
-        denoising_end: Optional[float] = None,
         guidance_scale: float = 7.5,
         negative_prompt: Optional[Union[str, List[str]]] = None,
         negative_prompt_2: Optional[Union[str, List[str]]] = None,
@@ -1276,22 +1276,18 @@ class StableDiffusionXLInpaintPipeline(
         negative_pooled_prompt_embeds: Optional[torch.FloatTensor] = None,
         ip_adapter_image: Optional[PipelineImageInput] = None,
         output_type: Optional[str] = "pil",
-        cloth =None,
-        pose_img = None,
-        text_embeds_cloth=None,
         return_dict: bool = True,
+        callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
+        callback_steps: int = 1,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         guidance_rescale: float = 0.0,
-        original_size: Tuple[int, int] = None,
+        original_size: Optional[Tuple[int, int]] = None,
         crops_coords_top_left: Tuple[int, int] = (0, 0),
-        target_size: Tuple[int, int] = None,
+        target_size: Optional[Tuple[int, int]] = None,
         negative_original_size: Optional[Tuple[int, int]] = None,
         negative_crops_coords_top_left: Tuple[int, int] = (0, 0),
         negative_target_size: Optional[Tuple[int, int]] = None,
-        aesthetic_score: float = 6.0,
-        negative_aesthetic_score: float = 2.5,
         clip_skip: Optional[int] = None,
-        pooled_prompt_embeds_c=None,
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         **kwargs,
@@ -1768,30 +1764,23 @@ class StableDiffusionXLInpaintPipeline(
                 # concat latents, mask, masked_image_latents in the channel dimension
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-
-                # bsz = mask.shape[0]
                 if num_channels_unet == 13:
-                    latent_model_input = torch.cat([latent_model_input, mask, masked_image_latents,pose_img], dim=1)
-
-                # if num_channels_unet == 9:
-                #     latent_model_input = torch.cat([latent_model_input, mask, masked_image_latents], dim=1)
+                    latent_model_input = torch.cat([latent_model_input, mask, masked_image_latents, pose_img], dim=1)
 
                 # predict the noise residual
                 added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
                 if ip_adapter_image is not None:
                     added_cond_kwargs["image_embeds"] = image_embeds
-                # down,reference_features = self.UNet_Encoder(cloth,t, text_embeds_cloth,added_cond_kwargs= {"text_embeds": pooled_prompt_embeds_c, "time_ids": add_time_ids},return_dict=False)
-                down,reference_features = self.unet_encoder(cloth,t, text_embeds_cloth,return_dict=False)
-                # print(type(reference_features))
-                # print(reference_features)
-                reference_features = list(reference_features)
-                # print(len(reference_features))
-                # for elem in reference_features:
-                #     print(elem.shape)
-                # exit(1)
-                if self.do_classifier_free_guidance:
-                    reference_features = [torch.cat([torch.zeros_like(d), d]) for d in reference_features]
 
+                down_block_res_samples, mid_block_res_sample = self.unet_encoder(
+                    cloth,
+                    t,
+                    encoder_hidden_states=text_embeds_cloth,
+                    return_dict=False,
+                )
+                if self.do_classifier_free_guidance:
+                    down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
+                    mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
 
                 noise_pred = self.unet(
                     latent_model_input,
@@ -1799,13 +1788,11 @@ class StableDiffusionXLInpaintPipeline(
                     encoder_hidden_states=prompt_embeds,
                     timestep_cond=timestep_cond,
                     cross_attention_kwargs=self.cross_attention_kwargs,
+                    down_block_additional_residuals=down_block_res_samples,
+                    mid_block_additional_residual=mid_block_res_sample,
                     added_cond_kwargs=added_cond_kwargs,
                     return_dict=False,
-                    garment_features=reference_features,
                 )[0]
-                # noise_pred = self.unet(latent_model_input, t, 
-                #                             prompt_embeds,timestep_cond=timestep_cond,cross_attention_kwargs=self.cross_attention_kwargs,added_cond_kwargs=added_cond_kwargs,down_block_additional_attn=down ).sample
-
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
@@ -1875,15 +1862,11 @@ class StableDiffusionXLInpaintPipeline(
             # cast back to fp16 if needed
             if needs_upcasting:
                 self.vae.to(dtype=torch.float16)
-        # else:
-        #     return StableDiffusionXLPipelineOutput(images=latents)
-
 
         image = self.image_processor.postprocess(image, output_type=output_type)
 
         if padding_mask_crop is not None:
             image = [self.image_processor.apply_overlay(mask_image, original_image, i, crops_coords) for i in image]
-
         # Offload all models
         self.maybe_free_model_hooks()
 
