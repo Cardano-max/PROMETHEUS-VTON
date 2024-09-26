@@ -169,7 +169,7 @@ def segment(image, sam_model, boxes):
     )
     return masks.cpu()
 
-def start_tryon(human_img, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
+def start_tryon(human_img_dict, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
     logger.info("Starting try-on process...")
     device = "cuda"
     
@@ -178,8 +178,14 @@ def start_tryon(human_img, garm_img, garment_des, is_checked, is_checked_crop, u
     pipe.unet_encoder.to(device)
 
     garm_img = garm_img.convert("RGB").resize((768,1024))
-    human_img_orig = human_img.convert("RGB")    
     
+    # Check if human_img_dict is a dictionary and extract the image
+    if isinstance(human_img_dict, dict) and 'image' in human_img_dict:
+        human_img_orig = human_img_dict['image'].convert("RGB")
+    else:
+        logger.error("Invalid input format for human image")
+        return None, None
+
     if is_checked_crop:
         width, height = human_img_orig.size
         target_width = int(min(width, height * (3 / 4)))
@@ -202,6 +208,8 @@ def start_tryon(human_img, garm_img, garment_des, is_checked, is_checked_crop, u
         mask = mask.resize((768,1024))
     elif use_grounding:
         mask = detect_clothing(human_img, has_hat, has_gloves, human_img)
+    elif isinstance(human_img_dict, dict) and 'mask' in human_img_dict:
+        mask = human_img_dict['mask'].convert("L").resize((768, 1024))
     else:
         mask = Image.fromarray(np.array(human_img.convert("L").resize((768, 1024))) > 128)
 
