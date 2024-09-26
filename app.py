@@ -180,6 +180,11 @@ def start_tryon(human_img_dict, garm_img, garment_des, is_checked, is_checked_cr
     pipe.to(device)
     pipe.unet_encoder.to(device)
 
+        # Convert seed to integer
+    seed = int(seed) if seed is not None else None
+    generator = torch.Generator(device).manual_seed(seed) if seed is not None else None
+
+
     garm_img = garm_img.convert("RGB").resize((768,1024))
     
     # Check if human_img_dict is a dictionary and extract the image
@@ -330,8 +335,7 @@ with image_blocks as demo:
         try_button = gr.Button(value="Try-on")
         with gr.Accordion(label="Advanced Settings", open=False):
             denoise_steps = gr.Number(label="Denoising Steps", minimum=20, maximum=40, value=20, step=1)
-            seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42)
-
+            seed = gr.Number(label="Seed", minimum=-1, maximum=2147483647, step=1, value=42, precision=0)  # precision=0 ensures integer
     logger.info("Setting up try-on function...")
     try_button.click(
         fn=start_tryon, 
