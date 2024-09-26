@@ -981,40 +981,10 @@ class StableDiffusionXLInpaintPipeline(
         return mask, masked_image_latents
 
     # Copied from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2img.StableDiffusionXLImg2ImgPipeline.get_timesteps
-    def get_timesteps(self, num_inference_steps, strength, device, denoising_start=None):
-        # get the original timestep using init_timestep
-        if denoising_start is None:
-            init_timestep = min(int(num_inference_steps * strength), num_inference_steps)
-            t_start = max(num_inference_steps - init_timestep, 0)
-        else:
-            t_start = 0
-
+    def get_timesteps(self, num_inference_steps: int, strength: float):
+        # Ensure t_start is an integer
+        t_start = max(int(num_inference_steps - num_inference_steps * strength), 0)
         timesteps = self.scheduler.timesteps[t_start * self.scheduler.order :]
-
-        # Strength is irrelevant if we directly request a timestep to start at;
-        # that is, strength is determined by the denoising_start instead.
-        if denoising_start is not None:
-            discrete_timestep_cutoff = int(
-                round(
-                    self.scheduler.config.num_train_timesteps
-                    - (denoising_start * self.scheduler.config.num_train_timesteps)
-                )
-            )
-
-            num_inference_steps = (timesteps < discrete_timestep_cutoff).sum().item()
-            if self.scheduler.order == 2 and num_inference_steps % 2 == 0:
-                # if the scheduler is a 2nd order scheduler we might have to do +1
-                # because `num_inference_steps` might be even given that every timestep
-                # (except the highest one) is duplicated. If `num_inference_steps` is even it would
-                # mean that we cut the timesteps in the middle of the denoising step
-                # (between 1st and 2nd devirative) which leads to incorrect results. By adding 1
-                # we ensure that the denoising process always ends after the 2nd derivate step of the scheduler
-                num_inference_steps = num_inference_steps + 1
-
-            # because t_n+1 >= t_n, we slice the timesteps starting from the end
-            timesteps = timesteps[-num_inference_steps:]
-            return timesteps, num_inference_steps
-
         return timesteps, num_inference_steps - t_start
 
     # Copied from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2img.StableDiffusionXLImg2ImgPipeline._get_add_time_ids
