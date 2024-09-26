@@ -133,13 +133,16 @@ def detect_clothing(img, has_hat, has_gloves, human_img):
     hat = ', hat' if has_hat else ''
     gloves = ', gloves' if has_gloves else ''
     
-    annotated_frame, detected_boxes = predict(
+    prediction = predict(
         model=groundingdino_model, 
         image=image_transformed, 
         caption=f"clothing clothes tops bottoms{hat}{gloves}",
         box_threshold=0.3,
         text_threshold=0.25
     )
+    
+    # Unpack the prediction
+    detected_boxes = prediction[0]  # Assuming boxes are the first element
     
     segmented_frame_masks = segment(image, sam_predictor, boxes=detected_boxes)
     
@@ -153,7 +156,7 @@ def detect_clothing(img, has_hat, has_gloves, human_img):
     model_parse, _ = parsing_model(human_img.resize((384,512)))
     mask2, _ = get_mask_location('hd', "upper_body", model_parse, keypoints)
     mask2 = mask2.resize((768,1024))
-    image_mask_pil = Image.fromarray(np.asarray(mask2)-mask)
+    image_mask_pil = Image.fromarray((np.asarray(mask2)-mask).astype(np.uint8))
     return image_mask_pil
 
 def segment(image, sam_model, boxes):
