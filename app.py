@@ -5,11 +5,6 @@ from pathlib import Path
 
 sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 
-import gradio as gr
-import threading
-import gradio as gr
-from gradio.components import Image, Checkbox, Textbox, Slider, Number
-
 import torch
 import numpy as np
 from PIL import Image
@@ -54,6 +49,13 @@ from torchvision.transforms.functional import to_pil_image
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Ensure CUDA is available
+assert torch.cuda.is_available(), "CUDA is not available. This script requires GPU."
+device = torch.device('cuda')
+torch.cuda.set_device(0)  # Use the first GPU if multiple are available
+
+logging.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
+
 # FastAPI setup
 app = FastAPI()
 app.add_middleware(
@@ -64,10 +66,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-logging.info(f"Using device: {device}")
-
-def load_model_hf(repo_id, filename, ckpt_config_filename, device='cpu'):
+def load_model_hf(repo_id, filename, ckpt_config_filename, device='cuda'):
     logging.info(f"Loading model from {repo_id}")
     cache_config_file = hf_hub_download(repo_id=repo_id, filename=ckpt_config_filename)
     args = SLConfig.fromfile(cache_config_file)
@@ -78,7 +77,7 @@ def load_model_hf(repo_id, filename, ckpt_config_filename, device='cpu'):
     log = model.load_state_dict(clean_state_dict(checkpoint['model']), strict=False)
     logging.info(f"Model loaded from {cache_file} \n => {log}")
     _ = model.eval()
-    return model
+    return model.to(device)
 
 sam_checkpoint = 'sam_vit_h_4b8939.pth'
 ckpt_repo_id = "ShilongLiu/GroundingDINO"
@@ -97,7 +96,7 @@ unet = UNet2DConditionModel.from_pretrained(
     base_path,
     subfolder="unet",
     torch_dtype=torch.float16,
-)
+).to(device)
 unet.requires_grad_(False)
 
 logging.info("Loading tokenizers...")
@@ -122,36 +121,36 @@ text_encoder_one = CLIPTextModel.from_pretrained(
     base_path,
     subfolder="text_encoder",
     torch_dtype=torch.float16,
-)
+).to(device)
 text_encoder_two = CLIPTextModelWithProjection.from_pretrained(
     base_path,
     subfolder="text_encoder_2",
     torch_dtype=torch.float16,
-)
+).to(device)
 
 logging.info("Loading image encoder...")
 image_encoder = CLIPVisionModelWithProjection.from_pretrained(
     base_path,
     subfolder="image_encoder",
     torch_dtype=torch.float16,
-)
+).to(device)
 
 logging.info("Loading VAE...")
 vae = AutoencoderKL.from_pretrained(base_path,
                                     subfolder="vae",
                                     torch_dtype=torch.float16,
-)
+).to(device)
 
 logging.info("Loading UNet Encoder...")
 UNet_Encoder = UNet2DConditionModel_ref.from_pretrained(
     base_path,
     subfolder="unet_encoder",
     torch_dtype=torch.float16,
-)
+).to(device)
 
 logging.info("Initializing parsing and openpose models...")
-parsing_model = Parsing(0)
-openpose_model = OpenPose(0)
+parsing_model = Parsing(0).to(device)
+openpose_model = OpenPose(0).to(device)
 
 UNet_Encoder.requires_grad_(False)
 image_encoder.requires_grad_(False)
@@ -180,7 +179,7 @@ pipe = TryonPipeline.from_pretrained(
     scheduler=noise_scheduler,
     image_encoder=image_encoder,
     torch_dtype=torch.float16,
-)
+).to(device)
 pipe.unet_encoder = UNet_Encoder
 
 def detect_clothing(img, has_hat, has_gloves, human_img):
@@ -198,15 +197,15 @@ def detect_clothing(img, has_hat, has_gloves, human_img):
     hat = ', hat' if has_hat else ''
     gloves = ', gloves' if has_gloves else ''
 
-    annotated_frame, detected_boxes = detect(image_transformed, image, text_prompt=f"clothing clothes tops bottoms{hat}{gloves}", model=groundingdino_model)
+    annotated_frame, detected_boxes = detect(image_transformed.to(device), image, text_prompt=f"clothing clothes tops bottoms{hat}{gloves}", model=groundingdino_model)
     segmented_frame_masks = segment(image, sam_predictor, boxes=detected_boxes)
     mask = segmented_frame_masks[0][0].cpu().numpy()
 
     for i in range(1, len(segmented_frame_masks)):
         mask += segmented_frame_masks[i][0].cpu().numpy()
 
-    keypoints = openpose_model(human_img.resize((384, 512)))
-    model_parse, _ = parsing_model(human_img.resize((384, 512)))
+    keypoints = openpose_model(human_img.resize((384, 512)).to(device))
+    model_parse, _ = parsing_model(human_img.resize((384, 512)).to(device))
     mask2, _ = get_mask_location('hd', "upper_body", model_parse, keypoints)
     mask2 = mask2.resize((768, 1024))
     image_mask_pil = Image.fromarray(np.asarray(mask2) - mask)
@@ -215,9 +214,6 @@ def detect_clothing(img, has_hat, has_gloves, human_img):
 @spaces.GPU
 def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
     logging.info("Starting try-on process...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    logging.info(f"Using device: {device}")
-
     try:
         openpose_model.preprocessor.body_estimation.model.to(device)
         pipe.to(device)
@@ -252,8 +248,8 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
 
         logging.info("Generating mask...")
         if is_checked:
-            keypoints = openpose_model(human_img.resize((384, 512)))
-            model_parse, _ = parsing_model(human_img.resize((384, 512)))
+            keypoints = openpose_model(human_img.resize((384, 512)).to(device))
+            model_parse, _ = parsing_model(human_img.resize((384, 512)).to(device))
             mask, mask_gray = get_mask_location('hd', "upper_body", model_parse, keypoints)
             mask = mask.resize((768, 1024))
         elif use_grounding:
@@ -267,7 +263,7 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
         human_img_arg = _apply_exif_orientation(human_img.resize((384, 512)))
         human_img_arg = convert_PIL_to_numpy(human_img_arg, format="BGR")
 
-        args = apply_net.create_argument_parser().parse_args(('show', './configs/densepose_rcnn_R_50_FPN_s1x.yaml', './ckpt/densepose/model_final_162be9.pkl', 'dp_segm', '-v', '--opts', 'MODEL.DEVICE', device))
+        args = apply_net.create_argument_parser().parse_args(('show', './configs/densepose_rcnn_R_50_FPN_s1x.yaml', './ckpt/densepose/model_final_162be9.pkl', 'dp_segm', '-v', '--opts', 'MODEL.DEVICE', 'cuda'))
         pose_img = args.func(args, human_img_arg)
         pose_img = pose_img[:, :, ::-1]
         pose_img = Image.fromarray(pose_img).resize((768, 1024))
@@ -320,12 +316,19 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
                     )[0]
 
         logging.info("Try-on process completed.")
+        logging.info(f"GPU Memory Usage: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
         if is_checked_crop:
             out_img = images[0].resize(crop_size)
             human_img_orig.paste(out_img, (int(left), int(top)))
             return human_img_orig, mask_gray
         else:
             return images[0], mask_gray
+    except RuntimeError as e:
+        if "CUDA out of memory" in str(e):
+            logging.error("GPU out of memory. Try reducing batch size or image dimensions.")
+        else:
+            logging.error(f"CUDA error: {str(e)}")
+        return None, None, str(e)
     except Exception as e:
         logging.error(f"Error in try-on process: {str(e)}")
         return None, None, f"An error occurred: {str(e)}"
