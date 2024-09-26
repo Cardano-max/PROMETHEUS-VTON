@@ -379,7 +379,7 @@ with image_blocks as demo:
     gr.Markdown("Virtual Try-on with your image and garment image. Check out the [source codes](https://github.com/yisol/IDM-VTON) and the [model](https://huggingface.co/yisol/IDM-VTON)")
     with gr.Row():
         with gr.Column():
-            imgs = gr.Image(source='upload', type="pil", label='Human. Mask with pen or use auto-masking', tool='sketch')
+            imgs = gr.Image(type="pil", label='Human. Mask with pen or use auto-masking', tool='sketch')
             with gr.Row():
                 is_checked = gr.Checkbox(label="Use auto-generated mask (Takes 5 seconds)")
             with gr.Row():
@@ -389,21 +389,12 @@ with image_blocks as demo:
             with gr.Row():
                 has_hat = gr.Checkbox(label='Look for a hat to mask in the outfit')
                 has_gloves = gr.Checkbox(label='Look for gloves to mask in the outfit')
-            gr.Examples(
-                examples=human_list_path,
-                inputs=imgs,
-                label="Human Examples"
-            )
 
         with gr.Column():
-            garm_img = gr.Image(label="Garment", source='upload', type="pil")
+            garm_img = gr.Image(type="pil", label="Garment")
             with gr.Row():
                 prompt = gr.Textbox(placeholder="Description of garment ex) Short Sleeve Round Neck T-shirts", label="Garment Description")
-            gr.Examples(
-                examples=garm_list_path,
-                inputs=garm_img,
-                label="Garment Examples"
-            )
+
         with gr.Column():
             masked_img = gr.Image(label="Masked image output")
         with gr.Column():
@@ -416,6 +407,19 @@ with image_blocks as demo:
                 denoise_steps = gr.Slider(minimum=20, maximum=40, value=20, step=1, label="Denoising Steps")
                 seed = gr.Number(label="Seed", value=42)
         error_output = gr.Textbox(label="Error Messages")
+
+    # Add example selectors
+    gr.Markdown("### Human Examples")
+    gr.Examples(
+        examples=human_list_path,
+        inputs=imgs,
+    )
+    
+    gr.Markdown("### Garment Examples")
+    gr.Examples(
+        examples=garm_list_path,
+        inputs=garm_img,
+    )
 
     try_button.click(fn=start_tryon, 
                      inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed], 
