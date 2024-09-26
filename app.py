@@ -373,7 +373,7 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
 #         print(f"Processed garment image: {garm_path}")
 
 # Gradio interface
-image_blocks = gr.Blocks().queue()
+image_blocks = gr.Blocks()
 with image_blocks as demo:
     gr.Markdown("## IDM-VTON 👕👔👚")
     gr.Markdown("Virtual Try-on with your image and garment image.")
