@@ -240,19 +240,27 @@ def detect_clothing(img, has_hat, has_gloves, human_img):
 
 @spaces.GPU
 def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
+    print("Starting try-on process...")
     device = "cuda"
+    print(f"Using device: {device}")
+
+    print("Moving models to device...")
     openpose_model.preprocessor.body_estimation.model.to(device)
     pipe.to(device)
     pipe.unet_encoder.to(device)
 
     if garm_img is None:
+        print("No garment image provided")
         return None, None, "Please upload a garment image."
 
+    print("Processing garment image...")
     garm_img = garm_img.convert("RGB").resize((768, 1024))
     
     if dict is None or dict.get("background") is None:
+        print("No human image provided")
         return None, None, "Please upload a human image."
 
+    print("Processing human image...")
     human_img_orig = dict["background"].convert("RGB")
     
     if is_checked_crop:
