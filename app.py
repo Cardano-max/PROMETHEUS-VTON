@@ -376,24 +376,23 @@ for garm_path in garm_list_path:
 image_blocks = gr.Blocks().queue()
 with image_blocks as demo:
     gr.Markdown("## IDM-VTON 👕👔👚")
-    gr.Markdown("Virtual Try-on with your image and garment image. Check out the [source codes](https://github.com/yisol/IDM-VTON) and the [model](https://huggingface.co/yisol/IDM-VTON)")
+    gr.Markdown("Virtual Try-on with your image and garment image.")
     with gr.Row():
         with gr.Column():
-            imgs = gr.Image(type="pil", label='Human. Mask with pen or use auto-masking', tool='sketch')
+            imgs = gr.Image(type="pil", label='Human Image')
             with gr.Row():
-                is_checked = gr.Checkbox(label="Use auto-generated mask (Takes 5 seconds)")
+                is_checked = gr.Checkbox(label="Use auto-generated mask")
             with gr.Row():
                 is_checked_crop = gr.Checkbox(label="Use auto-crop & resizing")
             with gr.Row():
-                use_grounding = gr.Checkbox(label='Use Grounded Segment Anything to generate mask (better than auto-masking)', value=True)
+                use_grounding = gr.Checkbox(label='Use Grounded Segment Anything', value=True)
             with gr.Row():
-                has_hat = gr.Checkbox(label='Look for a hat to mask in the outfit')
-                has_gloves = gr.Checkbox(label='Look for gloves to mask in the outfit')
+                has_hat = gr.Checkbox(label='Include hat')
+                has_gloves = gr.Checkbox(label='Include gloves')
 
         with gr.Column():
-            garm_img = gr.Image(type="pil", label="Garment")
-            with gr.Row():
-                prompt = gr.Textbox(placeholder="Description of garment ex) Short Sleeve Round Neck T-shirts", label="Garment Description")
+            garm_img = gr.Image(type="pil", label="Garment Image")
+            prompt = gr.Textbox(label="Garment Description", placeholder="e.g., Short Sleeve Round Neck T-shirt")
 
         with gr.Column():
             masked_img = gr.Image(label="Masked image output")
@@ -407,19 +406,6 @@ with image_blocks as demo:
                 denoise_steps = gr.Slider(minimum=20, maximum=40, value=20, step=1, label="Denoising Steps")
                 seed = gr.Number(label="Seed", value=42)
         error_output = gr.Textbox(label="Error Messages")
-
-    # Add example selectors
-    gr.Markdown("### Human Examples")
-    gr.Examples(
-        examples=human_list_path,
-        inputs=imgs,
-    )
-    
-    gr.Markdown("### Garment Examples")
-    gr.Examples(
-        examples=garm_list_path,
-        inputs=garm_img,
-    )
 
     try_button.click(fn=start_tryon, 
                      inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed], 
