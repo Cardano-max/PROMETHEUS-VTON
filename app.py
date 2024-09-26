@@ -425,21 +425,9 @@ for ex_human in human_list_path:
 ##default human
 
 import gradio as gr
-from gradio import *  # This is to ensure we have access to all Gradio components
 
-# Monkey patch Gradio's component creation to bypass Pydantic validation
-def patch_component(component):
-    original_init = component.__init__
-    def patched_init(self, *args, **kwargs):
-        kwargs.pop('pydantic_type', None)
-        original_init(self, *args, **kwargs)
-    component.__init__ = patched_init
-
-# Apply the patch to all Gradio components
-for name in dir(gr):
-    item = getattr(gr, name)
-    if isinstance(item, type) and issubclass(item, gr.Component):
-        patch_component(item)
+# Monkey patch Gradio's pydantic_to_pythonic function
+gr.component._pydantic_to_pythonic = lambda x: x
 
 
 image_blocks = gr.Blocks().queue()
