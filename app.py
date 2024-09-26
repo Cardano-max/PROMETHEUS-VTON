@@ -5,6 +5,11 @@ from pathlib import Path
 
 sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 
+import gradio as gr
+import threading
+import gradio as gr
+from gradio.components import Image, Checkbox, Textbox, Slider, Number
+
 import torch
 import numpy as np
 from PIL import Image
@@ -325,9 +330,27 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
         logging.error(f"Error in try-on process: {str(e)}")
         return None, None, f"An error occurred: {str(e)}"
 
+# Global variable to store the current job
+current_job = None
+
+def cancel_current_job():
+    global current_job
+    if current_job:
+        current_job.cancel()
+
+def start_tryon_wrapper(*args):
+    global current_job
+    # Cancel the current job if it exists
+    cancel_current_job()
+    # Create a new job
+    current_job = gr.AsyncJob(lambda: start_tryon(*args))
+    try:
+        return current_job.run()
+    except gr.CancelledError:
+        return None, None, "Job was cancelled"
+
 # Gradio interface
-image_blocks = gr.Blocks().queue()
-with image_blocks as demo:
+with gr.Blocks() as demo:
     gr.Markdown("## IDM-VTON 👕👔👚")
     gr.Markdown("Virtual Try-on with your image and garment image.")
     with gr.Row():
@@ -361,9 +384,10 @@ with image_blocks as demo:
         error_output = gr.Textbox(label="Error Messages", visible=True)
 
     try_button.click(
-        fn=start_tryon, 
+        fn=start_tryon_wrapper, 
         inputs=[imgs, garm_img, prompt, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed], 
-        outputs=[image_out, masked_img, error_output]
+        outputs=[image_out, masked_img, error_output],
+        cancels=[current_job] if current_job else []
     )
 
 if __name__ == "__main__":
