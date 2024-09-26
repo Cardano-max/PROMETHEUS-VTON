@@ -117,11 +117,11 @@ base_path = 'yisol/IDM-VTON'
 # Load example images
 example_path = os.path.join(os.path.dirname(__file__), 'example')
 
-human_list = os.listdir(os.path.join(example_path, "human"))
-human_list_path = [os.path.join(example_path, "human", human) for human in human_list]
+# human_list = os.listdir(os.path.join(example_path, "human"))
+# human_list_path = [os.path.join(example_path, "human", human) for human in human_list]
 
-garm_list = os.listdir(os.path.join(example_path, "cloth"))
-garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
+# garm_list = os.listdir(os.path.join(example_path, "cloth"))
+# garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
 
 
 
@@ -352,8 +352,8 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
     else:
         return images[0], mask_gray
 
-human_list = os.listdir(os.path.join(example_path, "human"))
-human_list_path = [os.path.join(example_path, "human", human) for human in human_list]
+# human_list = os.listdir(os.path.join(example_path, "human"))
+# human_list_path = [os.path.join(example_path, "human", human) for human in human_list]
 
 human_ex_list = []
 for ex_human in human_list_path:
@@ -362,8 +362,8 @@ for ex_human in human_list_path:
         human_ex_list.append(img)
         print(f"Processed human image: {ex_human}")
 
-garm_list = os.listdir(os.path.join(example_path, "cloth"))
-garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
+# garm_list = os.listdir(os.path.join(example_path, "cloth"))
+# garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
 
 garm_ex_list = []
 for garm_path in garm_list_path:
