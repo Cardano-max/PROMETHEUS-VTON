@@ -55,7 +55,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cpu')
 
 def load_model_hf(repo_id, filename, ckpt_config_filename, device='cpu'):
     cache_config_file = hf_hub_download(repo_id=repo_id, filename=ckpt_config_filename)
