@@ -71,6 +71,10 @@ from torchvision.transforms.functional import to_pil_image
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+import gradio as gr
+
+gr.types.pydantic_to_pythonic = lambda x: x
+
 def load_model_hf(repo_id, filename, ckpt_config_filename, device='cpu'):
     cache_config_file = hf_hub_download(repo_id=repo_id, filename=ckpt_config_filename)
 
@@ -421,17 +425,7 @@ for ex_human in human_list_path:
 
 ##default human
 
-app = FastAPI()
 
-class Config:
-    arbitrary_types_allowed = True
-
-class CustomBaseModel(BaseModel):
-    class Config(Config):
-        pass
-
-# This is to ensure Gradio uses our custom configuration
-gr.routes.templates.TemplateResponse.model_config = Config
 
 
 image_blocks = gr.Blocks().queue()
