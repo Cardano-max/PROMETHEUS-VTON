@@ -414,7 +414,7 @@ garm_list_path = [os.path.join(example_path,"cloth",garm) for garm in garm_list]
 human_list = os.listdir(os.path.join(example_path,"human"))
 human_list_path = [os.path.join(example_path,"human",human) for human in human_list]
 
-human_ex_list = []
+human_ex_list = human_list_path
 for ex_human in human_list_path:
     ex_dict= {}
     ex_dict['background'] = ex_human
@@ -448,8 +448,8 @@ with image_blocks as demo:
                 has_gloves = gr.Checkbox(label = 'Yes', info = 'Look for a gloves to mask in the outfit', value = False)
             example = gr.Examples(
                 inputs=imgs,
-                examples_per_page=10,
-                examples=human_ex_list
+                examples=human_ex_list,
+                examples_per_page=10
             )
 
         with gr.Column():
