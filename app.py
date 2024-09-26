@@ -5,8 +5,6 @@ import torch
 import numpy as np
 from PIL import Image
 from torchvision import transforms
-from fastapi import FastAPI
-from pydantic import BaseModel, Field
 import gradio as gr
 
 # Set up logging
@@ -21,7 +19,8 @@ sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 logger.info("Importing modules...")
 import GroundingDINO.groundingdino.datasets.transforms as T
 from GroundingDINO.groundingdino.models import build_model
-from GroundingDINO.groundingdino.util import box_ops, slconfig
+from GroundingDINO.groundingdino.util import box_ops
+from GroundingDINO.groundingdino.util.slconfig import SLConfig
 from GroundingDINO.groundingdino.util.utils import clean_state_dict
 from GroundingDINO.groundingdino.util.inference import annotate, predict
 from segment_anything import build_sam, SamPredictor
@@ -49,7 +48,7 @@ logger.info("Loading models...")
 def load_model_hf(repo_id, filename, ckpt_config_filename, device='cpu'):
     logger.info(f"Loading model from {repo_id}...")
     cache_config_file = hf_hub_download(repo_id=repo_id, filename=ckpt_config_filename)
-    args = slconfig.SLConfig.fromfile(cache_config_file)
+    args = SLConfig.fromfile(cache_config_file)
     args.device = device
     model = build_model(args)
     cache_file = hf_hub_download(repo_id=repo_id, filename=filename)
@@ -108,14 +107,173 @@ pipe = TryonPipeline.from_pretrained(
 pipe.unet_encoder = UNet_Encoder
 logger.info("TryonPipeline set up successfully.")
 
+# Define example lists
+logger.info("Defining example lists...")
+garm_list = os.listdir(os.path.join(example_path, "cloth"))
+garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
+
+human_list = os.listdir(os.path.join(example_path, "human"))
+human_list_path = [os.path.join(example_path, "human", human) for human in human_list]
+
+human_ex_list = human_list_path
+
+logger.info(f"Found {len(garm_list_path)} garment examples and {len(human_ex_list)} human examples.")
+
 # Utility functions
 def detect_clothing(img, has_hat, has_gloves, human_img):
     logger.info("Detecting clothing...")
-    # ... (rest of the function)
+    transform = T.Compose([
+        T.RandomResize([800], max_size=1333),
+        T.ToTensor(),
+        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+    image_source = img.convert("RGB").resize((768,1024))
+    image = np.asarray(image_source)
+    image_transformed, _ = transform(image_source, None)
+    hat = ', hat' if has_hat else ''
+    gloves = ', gloves' if has_gloves else ''
+    
+    annotated_frame, detected_boxes = predict(
+        model=groundingdino_model, 
+        image=image_transformed, 
+        caption=f"clothing clothes tops bottoms{hat}{gloves}",
+        box_threshold=0.3,
+        text_threshold=0.25
+    )
+    
+    segmented_frame_masks = segment(image, sam_predictor, boxes=detected_boxes)
+    
+    mask = segmented_frame_masks[0][0].cpu().numpy()
+
+    for i in range(1, len(segmented_frame_masks)):
+        mask += segmented_frame_masks[i][0].cpu().numpy()
+        logger.info(f'Added {i} total mask(s) to initial')
+    
+    keypoints = openpose_model(human_img.resize((384,512)))
+    model_parse, _ = parsing_model(human_img.resize((384,512)))
+    mask2, _ = get_mask_location('hd', "upper_body", model_parse, keypoints)
+    mask2 = mask2.resize((768,1024))
+    image_mask_pil = Image.fromarray(np.asarray(mask2)-mask)
+    return image_mask_pil
+
+def segment(image, sam_model, boxes):
+    sam_model.set_image(image)
+    H, W, _ = image.shape
+    boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([W, H, W, H])
+    transformed_boxes = sam_model.transform.apply_boxes_torch(boxes_xyxy.to(device), image.shape[:2])
+    masks, _, _ = sam_model.predict_torch(
+        point_coords = None,
+        point_labels = None,
+        boxes = transformed_boxes,
+        multimask_output = False,
+    )
+    return masks.cpu()
 
 def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_grounding, has_hat, has_gloves, denoise_steps, seed):
     logger.info("Starting try-on process...")
-    # ... (rest of the function)
+    device = "cuda"
+    
+    openpose_model.preprocessor.body_estimation.model.to(device)
+    pipe.to(device)
+    pipe.unet_encoder.to(device)
+
+    garm_img = garm_img.convert("RGB").resize((768,1024))
+    human_img_orig = dict["background"].convert("RGB")    
+    
+    if is_checked_crop:
+        width, height = human_img_orig.size
+        target_width = int(min(width, height * (3 / 4)))
+        target_height = int(min(height, width * (4 / 3)))
+        left = (width - target_width) / 2
+        top = (height - target_height) / 2
+        right = (width + target_width) / 2
+        bottom = (height + target_height) / 2
+        cropped_img = human_img_orig.crop((left, top, right, bottom))
+        crop_size = cropped_img.size
+        human_img = cropped_img.resize((768,1024))
+    else:
+        human_img = human_img_orig.resize((768,1024))
+
+    if is_checked:
+        logger.info('Automasking...')
+        keypoints = openpose_model(human_img.resize((384,512)))
+        model_parse, _ = parsing_model(human_img.resize((384,512)))
+        mask, mask_gray = get_mask_location('hd', "upper_body", model_parse, keypoints)
+        mask = mask.resize((768,1024))
+    elif use_grounding:
+        mask = detect_clothing(dict["background"], has_hat, has_gloves, human_img)
+    else:
+        mask = Image.fromarray(np.array(dict['layers'][0].convert("RGB").resize((768, 1024))) > 0)
+
+    mask_gray = (1-transforms.ToTensor()(mask)) * transforms.Normalize([0.5], [0.5])(transforms.ToTensor()(human_img))
+    mask_gray = transforms.ToPILImage()((mask_gray+1.0)/2.0)
+
+    human_img_arg = _apply_exif_orientation(human_img.resize((384,512)))
+    human_img_arg = convert_PIL_to_numpy(human_img_arg, format="BGR")
+     
+    args = apply_net.create_argument_parser().parse_args(('show', './configs/densepose_rcnn_R_50_FPN_s1x.yaml', './ckpt/densepose/model_final_162be9.pkl', 'dp_segm', '-v', '--opts', 'MODEL.DEVICE', 'cuda'))
+    pose_img = args.func(args,human_img_arg)    
+    pose_img = pose_img[:,:,::-1]    
+    pose_img = Image.fromarray(pose_img).resize((768,1024))
+    
+    with torch.no_grad():
+        with torch.cuda.amp.autocast():
+            prompt = "model is wearing " + garment_des
+            negative_prompt = "monochrome, lowres, bad anatomy, worst quality, low quality"
+            (
+                prompt_embeds,
+                negative_prompt_embeds,
+                pooled_prompt_embeds,
+                negative_pooled_prompt_embeds,
+            ) = pipe.encode_prompt(
+                prompt,
+                num_images_per_prompt=1,
+                do_classifier_free_guidance=True,
+                negative_prompt=negative_prompt,
+            )
+                            
+            prompt = "a photo of " + garment_des
+            negative_prompt = "monochrome, lowres, bad anatomy, worst quality, low quality"
+            (
+                prompt_embeds_c,
+                _,
+                _,
+                _,
+            ) = pipe.encode_prompt(
+                prompt,
+                num_images_per_prompt=1,
+                do_classifier_free_guidance=False,
+                negative_prompt=negative_prompt,
+            )
+
+            pose_img =  transforms.Normalize([0.5], [0.5])(transforms.ToTensor()(pose_img)).unsqueeze(0).to(device,torch.float16)
+            garm_tensor =  transforms.Normalize([0.5], [0.5])(transforms.ToTensor()(garm_img)).unsqueeze(0).to(device,torch.float16)
+            generator = torch.Generator(device).manual_seed(seed) if seed is not None else None
+            images = pipe(
+                prompt_embeds=prompt_embeds.to(device,torch.float16),
+                negative_prompt_embeds=negative_prompt_embeds.to(device,torch.float16),
+                pooled_prompt_embeds=pooled_prompt_embeds.to(device,torch.float16),
+                negative_pooled_prompt_embeds=negative_pooled_prompt_embeds.to(device,torch.float16),
+                num_inference_steps=denoise_steps,
+                generator=generator,
+                strength = 1.0,
+                pose_img = pose_img,
+                text_embeds_cloth=prompt_embeds_c.to(device,torch.float16),
+                cloth = garm_tensor,
+                mask_image=mask,
+                image=human_img, 
+                height=1024,
+                width=768,
+                ip_adapter_image = garm_img.resize((768,1024)),
+                guidance_scale=2.0,
+            )[0]
+
+    if is_checked_crop:
+        out_img = images[0].resize(crop_size)        
+        human_img_orig.paste(out_img, (int(left), int(top)))    
+        return human_img_orig, mask_gray
+    else:
+        return images[0], mask_gray
 
 # Set up Gradio interface
 logger.info("Setting up Gradio interface...")
