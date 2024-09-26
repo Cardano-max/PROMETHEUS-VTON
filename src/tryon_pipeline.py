@@ -989,9 +989,6 @@ class StableDiffusionXLInpaintPipeline(
         else:
             t_start = 0
 
-        # Ensure t_start is an integer
-        t_start = int(t_start)
-
         timesteps = self.scheduler.timesteps[t_start * self.scheduler.order :]
 
         # Strength is irrelevant if we directly request a timestep to start at;

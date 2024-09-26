@@ -91,16 +91,17 @@ class InferenceAction(Action):
         cfg = cls.setup_config(args.cfg, args.model, args, opts)
         logger.info(f"Loading model from {args.model}")
         predictor = DefaultPredictor(cfg)
-        
-        # Ensure human_img is on the same device as the model
-        device = next(predictor.model.parameters()).device
-        human_img = human_img.to(device)
-        
+        # logger.info(f"Loading data from {args.input}")
+        # file_list = cls._get_input_file_list(args.input)
+        # if len(file_list) == 0:
+        #     logger.warning(f"No input images for {args.input}")
+        #     return
+        context = cls.create_context(args, cfg)
+        # for file_name in file_list:
+        #     img = read_image(file_name, format="BGR")  # predictor expects BGR image.
         with torch.no_grad():
             outputs = predictor(human_img)["instances"]
-            # Move outputs to CPU for further processing
-            outputs = outputs.to("cpu")
-            out_pose = cls.execute_on_outputs(context, {"image": human_img.cpu().numpy()}, outputs)
+            out_pose = cls.execute_on_outputs(context, {"image": human_img}, outputs)
         cls.postexecute(context)
         return out_pose
 
@@ -274,10 +275,8 @@ class ShowAction(InferenceAction):
         import numpy as np
         visualizer = context["visualizer"]
         extractor = context["extractor"]
-        
-        # Ensure all tensors are on the same device (CPU in this case)
-        outputs = outputs.to("cpu")
-        
+        # image_fpath = entry["file_name"]
+        # logger.info(f"Processing {image_fpath}")
         image = cv2.cvtColor(entry["image"], cv2.COLOR_BGR2GRAY)
         image = np.tile(image[:, :, np.newaxis], [1, 1, 3])
         data = extractor(outputs)

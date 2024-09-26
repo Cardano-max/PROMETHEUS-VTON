@@ -16,7 +16,6 @@ logger.info("Adding GroundingDINO to system path...")
 sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 
 
-
 # Import necessary modules
 logger.info("Importing modules...")
 import GroundingDINO.groundingdino.datasets.transforms as T
