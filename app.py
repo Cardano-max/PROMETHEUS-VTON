@@ -55,7 +55,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-device = torch.device('cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def load_model_hf(repo_id, filename, ckpt_config_filename, device='cpu'):
     cache_config_file = hf_hub_download(repo_id=repo_id, filename=ckpt_config_filename)
@@ -115,7 +115,7 @@ base_path = 'yisol/IDM-VTON'
 
 
 # Load example images
-example_path = os.path.join(os.path.dirname(__file__), 'example')
+# example_path = os.path.join(os.path.dirname(__file__), 'example')
 
 # human_list = os.listdir(os.path.join(example_path, "human"))
 # human_list_path = [os.path.join(example_path, "human", human) for human in human_list]
@@ -355,22 +355,22 @@ def start_tryon(dict, garm_img, garment_des, is_checked, is_checked_crop, use_gr
 # human_list = os.listdir(os.path.join(example_path, "human"))
 # human_list_path = [os.path.join(example_path, "human", human) for human in human_list]
 
-human_ex_list = []
-for ex_human in human_list_path:
-    img = load_image(ex_human)
-    if img:
-        human_ex_list.append(img)
-        print(f"Processed human image: {ex_human}")
+# human_ex_list = []
+# for ex_human in human_list_path:
+#     img = load_image(ex_human)
+#     if img:
+#         human_ex_list.append(img)
+#         print(f"Processed human image: {ex_human}")
 
 # garm_list = os.listdir(os.path.join(example_path, "cloth"))
 # garm_list_path = [os.path.join(example_path, "cloth", garm) for garm in garm_list]
 
-garm_ex_list = []
-for garm_path in garm_list_path:
-    img = load_image(garm_path)
-    if img:
-        garm_ex_list.append(img)
-        print(f"Processed garment image: {garm_path}")
+# garm_ex_list = []
+# for garm_path in garm_list_path:
+#     img = load_image(garm_path)
+#     if img:
+#         garm_ex_list.append(img)
+#         print(f"Processed garment image: {garm_path}")
 
 # Gradio interface
 image_blocks = gr.Blocks().queue()
